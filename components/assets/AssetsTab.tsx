@@ -69,8 +69,8 @@ export function AssetsTab() {
       >
         <div className="space-y-3 text-[11px]">
           <p className="text-neutral-400">
-            Paste any Base ERC-20 contract. Uses DexScreener market data +
-            (optionally) Alchemy metadata. Scores are heuristics, not
+            Paste any Base ERC-20 contract. Uses DexScreener market data.
+            Scores are heuristics, not
             financial advice.
           </p>
 
