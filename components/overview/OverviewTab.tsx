@@ -157,7 +157,7 @@ export function OverviewTab() {
       {/* Wallet overview (Base) */}
       <Card
         title="Wallet overview (Base)"
-        description="Paste a Base address or .base.eth name to estimate health and activity."
+        description="Paste a Base address to get estimate wallet health and activity score."
       >
         <div className="space-y-3 text-[11px]">
           <div className="flex gap-2">
