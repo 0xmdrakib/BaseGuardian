@@ -1,0 +1,13 @@
+{
+  "miniapp": {
+    "version": "1",
+    "name": "Base Guardian",
+    "iconUrl": "https://your-domain.com/icon.png",
+    "homeUrl": "https://your-domain.com/",
+    "imageUrl": "https://your-domain.com/og-image.png",
+    "buttonTitle": "Open Base Guardian",
+    "splashImageUrl": "https://your-domain.com/splash.png",
+    "splashBackgroundColor": "#020617",
+    "webhookUrl": "https://your-domain.com/api/webhook"
+  }
+}
