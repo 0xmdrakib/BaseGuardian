@@ -203,7 +203,7 @@ export function OverviewTab() {
 
           {!walletSummary && !walletError && !walletLoading && (
             <p className="text-[11px] text-neutral-500">
-              This looks only at recent activity on Base (last ~30 days), not
+              This looks is your recent activity on Base chain (last ~30 days), plus
               full lifetime history yet.
             </p>
           )}
