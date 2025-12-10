@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { OverviewTab } from "@/components/overview/OverviewTab";
 import { AssetsTab } from "@/components/assets/AssetsTab";
@@ -14,13 +15,23 @@ export default function HomePage() {
       <div className="mx-auto flex max-w-lg flex-col gap-4 px-4 py-4">
         {/* Header */}
         <header className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight">
-              Base Guardian
-            </h1>
-            <p className="text-xs text-neutral-400">
-              Wallet health &amp; security on Base.
-            </p>
+          <div className="flex items-center gap-2">
+            <Image
+              src="/logo.png"          // <-- public/logo.png
+              alt="Base Guardian logo"
+              width={32}
+              height={32}
+              className="rounded-lg"
+              priority
+            />
+            <div>
+              <h1 className="text-lg font-semibold tracking-tight">
+                Base Guardian
+              </h1>
+              <p className="text-xs text-neutral-400">
+                Wallet health &amp; security on Base.
+              </p>
+            </div>
           </div>
         </header>
 
