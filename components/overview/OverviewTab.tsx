@@ -80,7 +80,7 @@ export function OverviewTab() {
 
     const trimmed = walletAddress.trim();
     if (!trimmed) {
-      setWalletError("Paste a Base wallet address (0x… or .base.eth).");
+      setWalletError("Paste a Base wallet address 0x... (Base wallet address).");
       return;
     }
 
