@@ -5,7 +5,7 @@ export default function Head() {
       <title>Base Guardian</title>
 
       {/* 👇 THIS is what Base is complaining about */}
-      <meta name="base:app_id" content="app_YOUR_REAL_APP_ID_HERE" />
+      <meta name="base:app_id" content="693acb1de6be54f5ed71d631" />
 
       {/* Mini app preview in casts */}
       <meta
