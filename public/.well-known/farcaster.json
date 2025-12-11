@@ -1,13 +1,13 @@
 {
+  "accountAssociation": {
+    "header": "eyJmaWQiOjUzMjc2NCwidHlwZSI6ImN1c3RvZHkiLCJrZXkiOiIweDFGOUIwOGNEMzQyYjZENTdiMDcyZDY5MUIwOTczNDQ3NzQyMDY3YTEifQ",
+    "payload": "eyJkb21haW4iOiJiYXNlZ3VhcmRpYW4udmVyY2VsLmFwcCJ9",
+    "signature": "Ntw2Ikh3PZDC5W/r1/ssaPfySUmcKaQ3IrUASo9GkW8G+8/hNwNkrOXv5T2lRLpFlom1ve9CHumCj4IRbS7pdhw="
+  },
   "miniapp": {
-    "version": "1",
-    "name": "Base Guardian",
-    "iconUrl": "https://your-domain.com/icon.png",
-    "homeUrl": "https://your-domain.com/",
-    "imageUrl": "https://your-domain.com/og-image.png",
-    "buttonTitle": "Open Base Guardian",
-    "splashImageUrl": "https://your-domain.com/splash.png",
-    "splashBackgroundColor": "#020617",
-    "webhookUrl": "https://your-domain.com/api/webhook"
+    "url": "https://baseguardian.vercel.app"
+  },
+  "baseBuilder": {
+    "ownerAddress": "0xbaD483210804A5b056a02aD385E6C0806CF857Ad"
   }
 }
