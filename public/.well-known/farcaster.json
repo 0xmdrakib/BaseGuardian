@@ -5,6 +5,18 @@
     "signature": "Ntw2Ikh3PZDC5W/r1/ssaPfySUmcKaQ3IrUASo9GkW8G+8/hNwNkrOXv5T2lRLpFlom1ve9CHumCj4IRbS7pdhw="
   },
   "miniapp": {
+    "name": "Base Guardian",
+    "version": "1.0.0",
+    "homeUrl": "https://baseguardian.vercel.app/",
+    "iconUrl": "https://baseguardian.vercel.app/icon.png",
+    "splashImageUrl": "https://baseguardian.vercel.app/splash.png",
+    "splashBackgroundColor": "#020617",
+    "primaryCategory": "finance",
+    "tags": [
+      "wallet",
+      "security",
+      "base"
+    ],
     "url": "https://baseguardian.vercel.app"
   },
   "baseBuilder": {
