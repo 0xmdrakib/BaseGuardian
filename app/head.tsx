@@ -4,15 +4,18 @@ export default function Head() {
     <>
       <title>Base Guardian</title>
 
-      {/* 👇 THIS is what Base is complaining about */}
-      <meta name="base:app_id" content="693acb1de6be54f5ed71d631" />
+      {/* REQUIRED for Base Build ownership check */}
+      <meta
+        name="base:app_id"
+        content="693acb1de6be54f5ed71d631"
+      />
 
-      {/* Mini app preview in casts */}
+      {/* Optional: Farcaster mini app preview */}
       <meta
         name="fc:miniapp"
         content={JSON.stringify({
           version: "next",
-          imageUrl: "https://baseguardian.vercel.app/splash.png", // or /preview.png, whatever you used
+          imageUrl: "https://baseguardian.vercel.app/preview.png",
           button: {
             title: "Open Base Guardian",
             action: {
