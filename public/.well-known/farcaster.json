@@ -6,7 +6,7 @@
   },
   "miniapp": {
     "name": "Base Guardian",
-    "version": "1.0.0",
+    "version": "1",
     "homeUrl": "https://baseguardian.vercel.app/",
     "iconUrl": "https://baseguardian.vercel.app/icon.png",
     "splashImageUrl": "https://baseguardian.vercel.app/splash.png",
