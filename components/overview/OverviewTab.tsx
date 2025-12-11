@@ -1,17 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Card } from "@/components/shared/Card";
 import { ScoreBadge } from "@/components/shared/ScoreBadge";
-
-type NeynarUserClient = {
-  fid: number;
-  username: string;
-  displayName: string | null;
-  followers: number | null;
-  following: number | null;
-  neynarScore: number | null; // 0–1
-};
 
 type WalletSummary = {
   address: string;
@@ -28,50 +19,12 @@ type WalletSummary = {
 };
 
 export function OverviewTab() {
-  // ---------- Base / Farcaster profile ----------
-  const [userData, setUserData] = useState<NeynarUserClient | null>(null);
-  const [loadingUser, setLoadingUser] = useState(false);
-  const [userError, setUserError] = useState<string | null>(null);
-
   // ---------- Wallet analysis ----------
   const [walletAddress, setWalletAddress] = useState<string>("");
   const [walletLoading, setWalletLoading] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
   const [walletSummary, setWalletSummary] =
     useState<WalletSummary | null>(null);
-
-  // Auto-load profile (local dev: fixed FID)
-  useEffect(() => {
-    const defaultFid = 3;
-
-    const loadProfile = async () => {
-      setLoadingUser(true);
-      setUserError(null);
-      try {
-        const res = await fetch(`/api/neynar/user?fid=${defaultFid}`);
-        const body = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(body.error ?? "Failed Neynar user lookup");
-        }
-        setUserData(body as NeynarUserClient);
-      } catch (err: any) {
-        console.error("Error loading Neynar user", err);
-        setUserError(
-          err?.message ??
-          "Could not load Neynar profile. This will be automatic inside the Mini App."
-        );
-      } finally {
-        setLoadingUser(false);
-      }
-    };
-
-    loadProfile();
-  }, []);
-
-  const neynarScorePercent =
-    userData?.neynarScore != null
-      ? Math.round(userData.neynarScore * 100)
-      : null;
 
   // ---------- Wallet overview ----------
   const handleAnalyzeWallet = async () => {
@@ -80,7 +33,9 @@ export function OverviewTab() {
 
     const trimmed = walletAddress.trim();
     if (!trimmed) {
-      setWalletError("Paste a Base wallet address 0x... (Base wallet address).");
+      setWalletError(
+        "Paste a Base wallet address 0x... (Base wallet address)."
+      );
       return;
     }
 
@@ -112,48 +67,6 @@ export function OverviewTab() {
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Base profile – auto only, no user search */}
-      <Card title="Base profile" description="Your profile score & activity.">
-        {loadingUser && (
-          <p className="text-[11px] text-neutral-400">Loading profile…</p>
-        )}
-
-        {userError && !loadingUser && (
-          <p className="text-[11px] text-red-400">
-            Could not load profile: {userError}
-          </p>
-        )}
-
-        {userData && !loadingUser && !userError && (
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="mb-1 text-[11px] text-neutral-400">
-                @{userData.username}
-              </div>
-              <div className="mb-1 text-[11px] text-neutral-500">
-                FID: {userData.fid}
-              </div>
-
-              <ScoreBadge
-                label="Neynar score"
-                score={neynarScorePercent ?? 0}
-              />
-
-              {userData.neynarScore != null && (
-                <p className="mt-1 text-[11px] text-neutral-400">
-                  Raw score: {userData.neynarScore.toFixed(2)}
-                </p>
-              )}
-
-              <p className="mt-1 text-[11px] text-neutral-500">
-                Followers: {userData.followers ?? "—"} · Following:{" "}
-                {userData.following ?? "—"}
-              </p>
-            </div>
-          </div>
-        )}
-      </Card>
-
       {/* Wallet overview (Base) */}
       <Card
         title="Wallet overview (Base)"
@@ -203,8 +116,8 @@ export function OverviewTab() {
 
           {!walletSummary && !walletError && !walletLoading && (
             <p className="text-[11px] text-neutral-500">
-              This looks is your recent activity on Base chain (last ~30 days), plus
-              full lifetime history yet.
+              This looks is your recent activity on Base chain (last ~30 days),
+              plus full lifetime history yet.
             </p>
           )}
         </div>
