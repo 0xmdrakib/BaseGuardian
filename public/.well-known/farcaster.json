@@ -7,17 +7,12 @@
   "miniapp": {
     "name": "Base Guardian",
     "version": "1",
-    "homeUrl": "https://baseguardian.vercel.app/",
     "iconUrl": "https://baseguardian.vercel.app/icon.png",
+    "homeUrl": "https://baseguardian.vercel.app/",
     "splashImageUrl": "https://baseguardian.vercel.app/splash.png",
     "splashBackgroundColor": "#020617",
     "primaryCategory": "finance",
-    "tags": [
-      "wallet",
-      "security",
-      "base"
-    ],
-    "url": "https://baseguardian.vercel.app"
+    "tags": ["wallet", "security", "base"]
   },
   "baseBuilder": {
     "ownerAddress": "0xbaD483210804A5b056a02aD385E6C0806CF857Ad"
