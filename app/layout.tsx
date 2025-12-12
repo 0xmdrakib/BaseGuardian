@@ -1,12 +1,54 @@
 import type { Metadata } from "next";
+import React from "react";
 import "./globals.css";
 
+const APP_URL = "https://baseguardian.vercel.app";
+const APP_ID = "693acb1de6be54f5ed71d631"; // your app_id
+
 export const metadata: Metadata = {
+  metadataBase: new URL(APP_URL),
   title: "Base Guardian",
-  description: "Base wallet health & security mini app for Farcaster",
+  description: "Wallet health & security mini app for Base.",
+
+  openGraph: {
+    title: "Base Guardian",
+    description: "Wallet health & security mini app for Base.",
+    url: APP_URL,
+    images: [
+      { url: "/preview.png", width: 1200, height: 630, alt: "Base Guardian" },
+    ],
+    type: "website",
+  },
+
+  twitter: {
+    card: "summary_large_image",
+    title: "Base Guardian",
+    description: "Wallet health & security mini app for Base.",
+    images: ["/preview.png"],
+  },
+
+  icons: {
+    icon: "/icon.png",
+    apple: "/icon.png",
+  },
+
   other: {
-    "base:app_id": "693acb1de6be54f5ed71d631"
-  }
+    // ✅ Base verification
+    "base:app_id": APP_ID,
+
+    // ✅ Makes Warpcast/Base show "Open Base Guardian"
+    "fc:miniapp": JSON.stringify({
+      version: "next",
+      imageUrl: `${APP_URL}/preview.png`,
+      button: {
+        title: "Open Base Guardian",
+        action: {
+          type: "launch_frame",
+          url: APP_URL,
+        },
+      },
+    }),
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
