@@ -76,7 +76,7 @@ export function AssetsTab() {
 
           <div className="flex gap-2">
             <input
-              placeholder="0x... (Base token contract)"
+              placeholder="0x... (Base token contract address)"
               className="flex-1 rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-100 placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-neutral-500"
               value={tokenAddress}
               onChange={(e) => setTokenAddress(e.target.value)}
