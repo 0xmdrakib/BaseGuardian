@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import React from "react";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
 const APP_URL = "https://baseguardian.vercel.app";
@@ -51,10 +52,15 @@ export const metadata: Metadata = {
   },
 };
 
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-sans",
+});
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="bg-neutral-950 text-neutral-50">{children}</body>
+    <html lang="en" className={inter.variable}>
+      <body className="min-h-screen font-sans">{children}</body>
     </html>
   );
 }
