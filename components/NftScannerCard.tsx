@@ -47,14 +47,14 @@ export default function NftScannerCard() {
         <div className="flex gap-2">
           <input
             placeholder="0x... (Base NFT contract address)"
-            className="flex-1 rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-100 placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+            className="input flex-1"
             value={contract}
             onChange={(e) => setContract(e.target.value)}
           />
           <button
             onClick={handleScan}
             disabled={loading || !contract}
-            className="rounded-xl bg-neutral-100 px-3 py-2 text-xs font-medium text-neutral-900 disabled:cursor-not-allowed disabled:bg-neutral-400"
+            className="btn btn-primary"
           >
             {loading ? "Scanning…" : "Scan NFT"}
           </button>
@@ -65,7 +65,7 @@ export default function NftScannerCard() {
           source before minting or buying.
         </p>
 
-        {error && <p className="text-[11px] text-red-400">{error}</p>}
+        {error && <p className="text-[11px] text-rose-300">{error}</p>}
 
         {info && <NftSummaryPanel info={info} />}
 
@@ -120,7 +120,7 @@ function NftSummaryPanel({ info }: { info: BaseNftCollectionSummary }) {
       : "No market data";
 
   return (
-    <div className="rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2">
+    <div className="subpanel">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -129,17 +129,17 @@ function NftSummaryPanel({ info }: { info: BaseNftCollectionSummary }) {
             </span>
           </div>
 
-          <div className="mt-0.5 text-[10px] text-neutral-500">
+          <div className="mt-0.5 text-[10px] text-white/35">
             {shortAddress}
           </div>
 
           {info.symbol && (
-            <div className="mt-1 text-[10px] text-neutral-500">
+            <div className="mt-1 text-[10px] text-white/40">
               Symbol: <span className="font-medium">{info.symbol}</span>
             </div>
           )}
 
-          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-neutral-300">
+          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-white/70">
             <MetricLine label="Token standard" value={standardLabel} />
             <MetricLine label="Total supply" value={totalSupplyLabel} />
             <MetricLine label="Floor price" value={floorLabel} />
@@ -147,7 +147,7 @@ function NftSummaryPanel({ info }: { info: BaseNftCollectionSummary }) {
           </div>
 
           {info.reasons && info.reasons.length > 0 && (
-            <ul className="mt-2 space-y-0.5 text-[10px] text-neutral-500">
+            <ul className="mt-2 space-y-0.5 text-[10px] text-white/45">
               {info.reasons.map((r, idx) => (
                 <li key={idx}>• {r}</li>
               ))}
@@ -156,12 +156,7 @@ function NftSummaryPanel({ info }: { info: BaseNftCollectionSummary }) {
         </div>
 
         <div className="shrink-0">
-          <span
-            className={
-              "inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium " +
-              badgeClass
-            }
-          >
+          <span className={"badge " + badgeClass}>
             {label}
           </span>
         </div>
@@ -179,8 +174,8 @@ function MetricLine({
 }) {
   return (
     <div className="flex flex-col">
-      <span className="text-[10px] text-neutral-500">{label}</span>
-      <span className="text-[11px] font-medium text-neutral-100">
+      <span className="text-[10px] text-white/50">{label}</span>
+      <span className="text-[11px] font-medium text-white/90">
         {value}
       </span>
     </div>
