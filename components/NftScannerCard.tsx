@@ -44,6 +44,12 @@ export default function NftScannerCard() {
       description="Volume, holders and basic health for Base NFT collections."
     >
       <div className="space-y-3 text-[11px]">
+        {/* Moved above input row to match Token scanner layout */}
+        <p className="text-[10px] text-neutral-500">
+          Paste any Base NFT contract. Always verify contracts from a trusted
+          source before minting or buying.
+        </p>
+
         <div className="flex gap-2">
           <input
             placeholder="0x... (Base NFT contract address)"
@@ -59,11 +65,6 @@ export default function NftScannerCard() {
             {loading ? "Scanning…" : "Scan NFT"}
           </button>
         </div>
-
-        <p className="text-[10px] text-neutral-500">
-          Paste any Base NFT contract. Always verify contracts from a trusted
-          source before minting or buying.
-        </p>
 
         {error && <p className="text-[11px] text-rose-300">{error}</p>}
 
@@ -129,9 +130,7 @@ function NftSummaryPanel({ info }: { info: BaseNftCollectionSummary }) {
             </span>
           </div>
 
-          <div className="mt-0.5 text-[10px] text-white/35">
-            {shortAddress}
-          </div>
+          <div className="mt-0.5 text-[10px] text-white/35">{shortAddress}</div>
 
           {info.symbol && (
             <div className="mt-1 text-[10px] text-white/40">
@@ -156,9 +155,7 @@ function NftSummaryPanel({ info }: { info: BaseNftCollectionSummary }) {
         </div>
 
         <div className="shrink-0">
-          <span className={"badge " + badgeClass}>
-            {label}
-          </span>
+          <span className={"badge " + badgeClass}>{label}</span>
         </div>
       </div>
     </div>
@@ -175,9 +172,7 @@ function MetricLine({
   return (
     <div className="flex flex-col">
       <span className="text-[10px] text-white/50">{label}</span>
-      <span className="text-[11px] font-medium text-white/90">
-        {value}
-      </span>
+      <span className="text-[11px] font-medium text-white/90">{value}</span>
     </div>
   );
 }
