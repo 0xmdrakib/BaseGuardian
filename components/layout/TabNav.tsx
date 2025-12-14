@@ -15,7 +15,7 @@ export function TabNav({ activeTab, onChange }: TabNavProps) {
   ];
 
   return (
-    <nav className="flex rounded-full bg-neutral-900 p-1 text-xs">
+    <nav className="flex rounded-2xl border border-white/10 bg-white/[0.03] p-1 text-xs shadow-lg shadow-black/20 backdrop-blur-sm">
       {tabs.map((tab) => {
         const isActive = tab.id === activeTab;
         return (
@@ -24,10 +24,10 @@ export function TabNav({ activeTab, onChange }: TabNavProps) {
             type="button"
             onClick={() => onChange(tab.id)}
             className={
-              "flex-1 rounded-full px-3 py-1 font-medium transition " +
+              "flex-1 rounded-xl px-3 py-2 font-semibold tracking-tight transition focus-visible:ring-2 focus-visible:ring-blue-500/30 " +
               (isActive
-                ? "bg-neutral-100 text-neutral-900"
-                : "text-neutral-400 hover:text-neutral-50")
+                ? "bg-white text-neutral-900 shadow-md shadow-black/30"
+                : "text-white/60 hover:bg-white/[0.06] hover:text-white/90")
             }
           >
             {tab.label}
