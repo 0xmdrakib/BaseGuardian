@@ -2,6 +2,111 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-neutral-950 text-neutral-50;
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    @apply text-neutral-50 antialiased;
+
+    /* Deep, subtle background (kept lightweight for mini app contexts). */
+    background:
+      radial-gradient(1200px 800px at 10% -10%, rgba(59, 130, 246, 0.18), transparent 55%),
+      radial-gradient(900px 700px at 90% 0%, rgba(16, 185, 129, 0.10), transparent 55%),
+      radial-gradient(800px 600px at 50% 110%, rgba(168, 85, 247, 0.10), transparent 55%),
+      linear-gradient(180deg, #05060a 0%, #070812 45%, #05060a 100%);
+  }
+
+  /* Crisp focus for keyboard users. */
+  :focus-visible {
+    outline: none;
+  }
+
+  ::selection {
+    background: rgba(59, 130, 246, 0.35);
+  }
+}
+
+@layer components {
+  /* Container surface */
+  .panel {
+    @apply relative overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] shadow-2xl shadow-black/40 backdrop-blur-sm;
+  }
+
+  .panel::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background:
+      radial-gradient(900px 320px at 50% 0%, rgba(168, 85, 247, 0.10), transparent 60%);
+  }
+
+  .panel > * {
+    position: relative;
+  }
+
+  /* Primary card surface */
+  .card {
+    @apply relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-4 shadow-lg shadow-black/30 backdrop-blur;
+  }
+
+  .card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background:
+      radial-gradient(700px 240px at 15% 0%, rgba(59, 130, 246, 0.12), transparent 55%),
+      radial-gradient(700px 240px at 85% 0%, rgba(16, 185, 129, 0.08), transparent 55%);
+    opacity: 1;
+  }
+
+  .card > * {
+    position: relative;
+  }
+
+  /* Compact sub-panels inside cards (token/NFT summaries) */
+  .subpanel {
+    @apply rounded-2xl border border-white/10 bg-black/20 p-3;
+  }
+
+  /* Inputs & buttons */
+  .input {
+    @apply w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs text-white/90 placeholder:text-white/30 transition;
+    @apply focus-visible:border-white/20 focus-visible:ring-2 focus-visible:ring-blue-500/30;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center rounded-xl px-3 py-2 text-xs font-medium transition;
+    @apply focus-visible:ring-2 focus-visible:ring-blue-500/30 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .btn-primary {
+    @apply bg-white text-neutral-900 hover:bg-white/90 active:bg-white/80;
+  }
+
+  .btn-ghost {
+    @apply border border-white/10 bg-white/[0.06] text-white/80 hover:bg-white/[0.10] active:bg-white/[0.12];
+  }
+
+  .metric {
+    @apply rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2;
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium;
+  }
+
+  .link {
+    @apply underline underline-offset-2 decoration-white/30 hover:decoration-white/60;
+  }
 }
