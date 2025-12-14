@@ -76,21 +76,21 @@ export function OverviewTab() {
           <div className="flex gap-2">
             <input
               placeholder="0x... (Base wallet address)"
-              className="flex-1 rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-100 placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+              className="input flex-1"
               value={walletAddress}
               onChange={(e) => setWalletAddress(e.target.value)}
             />
             <button
               onClick={handleAnalyzeWallet}
               disabled={walletLoading}
-              className="rounded-xl bg-neutral-100 px-3 py-2 text-xs font-medium text-neutral-900 disabled:cursor-not-allowed disabled:bg-neutral-400"
+              className="btn btn-primary"
             >
               {walletLoading ? "Analyzing…" : "Analyze"}
             </button>
           </div>
 
           {walletError && (
-            <p className="text-[11px] text-red-400">{walletError}</p>
+            <p className="text-[11px] text-rose-300">{walletError}</p>
           )}
 
           {walletSummary && (
@@ -115,7 +115,7 @@ export function OverviewTab() {
           )}
 
           {!walletSummary && !walletError && !walletLoading && (
-            <p className="text-[11px] text-neutral-500">
+            <p className="text-[11px] text-white/50">
               This looks is your recent activity on Base chain (last ~30 days),
               plus full lifetime history yet.
             </p>
@@ -133,7 +133,7 @@ export function OverviewTab() {
           <div className="flex items-center justify-between">
             <div>
               <ScoreBadge label="Health score" score={walletHealth.score} />
-              <ul className="mt-2 space-y-1 text-[11px] text-neutral-400">
+              <ul className="mt-2 space-y-1 text-[11px] text-white/60">
                 {walletHealth.reasons.map((r, i) => (
                   <li key={i}>• {r}</li>
                 ))}
@@ -149,27 +149,27 @@ export function OverviewTab() {
           title="Onchain resume (Base)"
           description="Snapshot of your recent activity on Base (last ~30 days)."
         >
-          <div className="grid grid-cols-2 gap-2 text-[11px] text-neutral-300">
+          <div className="grid grid-cols-2 gap-2 text-[11px] text-white/70">
             <div>
-              <div className="text-neutral-500">Activity tier</div>
+              <div className="text-white/50">Activity tier</div>
               <div className="font-medium">
                 {onchainSnapshot.activityTier}
               </div>
             </div>
             <div>
-              <div className="text-neutral-500">Est. active days</div>
+              <div className="text-white/50">Est. active days</div>
               <div className="font-medium">
                 {onchainSnapshot.estimatedActiveDays}
               </div>
             </div>
             <div>
-              <div className="text-neutral-500">Avg. tx / active day</div>
+              <div className="text-white/50">Avg. tx / active day</div>
               <div className="font-medium">
                 {onchainSnapshot.avgTxPerActiveDay}
               </div>
             </div>
             <div>
-              <div className="text-neutral-500">Focus</div>
+              <div className="text-white/50">Focus</div>
               <div className="font-medium">
                 {onchainSnapshot.focusLabel}
               </div>
@@ -183,9 +183,9 @@ export function OverviewTab() {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl bg-neutral-900 px-3 py-2">
-      <div className="text-[10px] text-neutral-500">{label}</div>
-      <div className="text-xs font-medium text-neutral-100">{value}</div>
+    <div className="metric">
+      <div className="text-[10px] text-white/50">{label}</div>
+      <div className="text-xs font-medium text-white/90">{value}</div>
     </div>
   );
 }
