@@ -5,6 +5,8 @@
 @layer base {
   :root {
     color-scheme: dark;
+
+    /* One source of truth for the app background */
     --app-bg:
       radial-gradient(1200px 800px at 10% -10%, rgba(59, 130, 246, 0.18), transparent 55%),
       radial-gradient(900px 700px at 90% 0%, rgba(16, 185, 129, 0.10), transparent 55%),
@@ -12,6 +14,8 @@
       linear-gradient(180deg, #05060a 0%, #070812 45%, #05060a 100%);
   }
 
+  /* IMPORTANT:
+     Use min-height (not height) so background covers when page grows. */
   html {
     min-height: 100%;
     background: var(--app-bg);
@@ -19,13 +23,32 @@
   }
 
   body {
-    min-height: 100dvh; /* important for mobile/in-app browsers */
-    @apply text-neutral-50 antialiased;
-    background: transparent; /* html paints the background */
-    overscroll-behavior-y: none; /* optional: prevents “rubber band” reveal */
-  }
-}
+    /* Allow the page to grow beyond the viewport */
+    min-height: 100%;
+    height: auto;
 
+    /* Cover dynamic viewport changes on mobile/in-app browsers */
+    min-height: 100vh;
+    min-height: 100svh;
+    min-height: 100dvh;
+
+    @apply text-neutral-50 antialiased;
+
+    /* Paint background on the scrolling element too (super reliable) */
+    background: var(--app-bg);
+    background-color: #05060a;
+
+    /* Prevent bottom “host color” peeking in around safe areas */
+    padding-bottom: env(safe-area-inset-bottom);
+
+    /* Optional, but helps in some in-app browsers */
+    overscroll-behavior-y: none;
+  }
+
+  /* Nice global defaults */
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
 
   /* Crisp focus for keyboard users. */
   :focus-visible {
