@@ -77,21 +77,21 @@ export function AssetsTab() {
           <div className="flex gap-2">
             <input
               placeholder="0x... (Base token contract address)"
-              className="flex-1 rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-100 placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+              className="input flex-1"
               value={tokenAddress}
               onChange={(e) => setTokenAddress(e.target.value)}
             />
             <button
               onClick={handleCheckSingleToken}
               disabled={tokenInfoLoading || !tokenAddress}
-              className="rounded-xl bg-neutral-100 px-3 py-2 text-xs font-medium text-neutral-900 disabled:cursor-not-allowed disabled:bg-neutral-400"
+              className="btn btn-primary"
             >
               {tokenInfoLoading ? "Checking…" : "Check token"}
             </button>
           </div>
 
           {tokenInfoError && (
-            <p className="text-[11px] text-red-400">{tokenInfoError}</p>
+            <p className="text-[11px] text-rose-300">{tokenInfoError}</p>
           )}
 
           {tokenInfo && <SingleTokenPanel token={tokenInfo} />}
@@ -148,7 +148,7 @@ function SingleTokenPanel({ token }: { token: SingleTokenInfoClient }) {
       : "Unknown";
 
   return (
-    <div className="rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2">
+    <div className="subpanel">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -161,7 +161,7 @@ function SingleTokenPanel({ token }: { token: SingleTokenInfoClient }) {
               </span>
             )}
           </div>
-          <div className="text-[10px] text-neutral-600">{shortAddress}</div>
+          <div className="text-[10px] text-white/35">{shortAddress}</div>
 
           <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-neutral-300">
             <MetricLine
@@ -207,7 +207,7 @@ function SingleTokenPanel({ token }: { token: SingleTokenInfoClient }) {
                     href={token.pairUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="underline underline-offset-2"
+                    className="link"
                   >
                     Open on DexScreener
                   </a>
@@ -219,7 +219,7 @@ function SingleTokenPanel({ token }: { token: SingleTokenInfoClient }) {
           </div>
 
           {token.reasons && token.reasons.length > 0 && (
-            <ul className="mt-2 space-y-0.5 text-[10px] text-neutral-500">
+            <ul className="mt-2 space-y-0.5 text-[10px] text-white/45">
               {token.reasons.map((r, idx) => (
                 <li key={idx}>• {r}</li>
               ))}
@@ -228,12 +228,7 @@ function SingleTokenPanel({ token }: { token: SingleTokenInfoClient }) {
         </div>
 
         <div className="shrink-0">
-          <span
-            className={
-              "inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium " +
-              badgeClass
-            }
-          >
+          <span className={"badge " + badgeClass}>
             {label}
           </span>
         </div>
@@ -251,8 +246,8 @@ function MetricLine({
 }) {
   return (
     <div className="flex flex-col">
-      <span className="text-[10px] text-neutral-500">{label}</span>
-      <span className="text-[11px] font-medium text-neutral-100">
+      <span className="text-[10px] text-white/50">{label}</span>
+      <span className="text-[11px] font-medium text-white/90">
         {value}
       </span>
     </div>
