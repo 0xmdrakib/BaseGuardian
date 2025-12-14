@@ -9,7 +9,7 @@ interface ScoreBadgeProps {
 export function ScoreBadge({ label, score }: ScoreBadgeProps) {
   if (score == null || Number.isNaN(score)) {
     return (
-      <span className="inline-flex items-center rounded-full border border-neutral-800 bg-neutral-900 px-2 py-0.5 text-[10px] text-neutral-500">
+      <span className="badge border-white/10 bg-white/[0.04] text-white/50">
         {label}: N/A
       </span>
     );
@@ -35,7 +35,7 @@ export function ScoreBadge({ label, score }: ScoreBadgeProps) {
   return (
     <span
       className={
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium " +
+        "badge " +
         tone
       }
     >
