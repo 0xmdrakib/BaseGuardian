@@ -30,7 +30,7 @@ export function SecurityTab() {
           <div className="flex gap-2">
             <input
               placeholder="0x... (Base wallet address)"
-              className="flex-1 rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs text-neutral-100 placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-neutral-500"
+              className="input flex-1"
               value={approvalAddress}
               onChange={(e) => setApprovalAddress(e.target.value)}
             />
@@ -38,7 +38,7 @@ export function SecurityTab() {
               href={revokeUrl}
               target="_blank"
               rel="noreferrer"
-              className="rounded-xl bg-neutral-100 px-3 py-2 text-xs font-medium text-neutral-900 disabled:cursor-not-allowed"
+              className="btn btn-primary"
             >
               Open revoke.cash
             </a>
