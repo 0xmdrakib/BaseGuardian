@@ -226,9 +226,12 @@
   }
 
   .btn-primary {
-    color: rgba(255, 255, 255, 0.95);
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    /* White-forward CTA (text + subtle sheen) */
+    color: rgba(255, 255, 255, 0.98);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.38);
+    border: 1px solid rgba(255, 255, 255, 0.22);
     background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.04) 55%, rgba(0, 0, 0, 0.00) 100%),
       linear-gradient(135deg,
         rgba(var(--accent), 0.95) 0%,
         rgba(var(--accent-2), 0.92) 45%,
@@ -237,12 +240,13 @@
       0 18px 50px rgba(0, 0, 0, 0.45),
       0 1px 0 rgba(255, 255, 255, 0.18) inset,
       0 10px 30px rgba(var(--accent), 0.16),
-      0 0 18px rgba(var(--accent-3), 0.10);
+      0 0 18px rgba(var(--accent-3), 0.10),
+      0 0 16px rgba(255, 255, 255, 0.10);
   }
 
   /* Action-button glow: subtle by default, stronger once an input has content */
   .btn-primary:not(:disabled) {
-    border-color: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.26);
   }
 
   .input:not(:placeholder-shown) + .btn.btn-primary {
@@ -250,7 +254,8 @@
       0 20px 55px rgba(0, 0, 0, 0.42),
       0 1px 0 rgba(255, 255, 255, 0.18) inset,
       0 14px 44px rgba(var(--accent), 0.28),
-      0 0 26px rgba(var(--accent-3), 0.16);
+      0 0 26px rgba(var(--accent-3), 0.16),
+      0 0 28px rgba(255, 255, 255, 0.14);
     filter: brightness(1.04) saturate(1.06);
   }
 
