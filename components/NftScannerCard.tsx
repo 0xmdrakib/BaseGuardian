@@ -45,7 +45,7 @@ export default function NftScannerCard() {
     >
       <div className="space-y-3 text-[11px]">
         {/* Moved above input row to match Token scanner layout */}
-        <p className="text-[10px] text-neutral-500">
+        <p className="text-neutral-400">
           Paste any Base NFT contract. Always verify contracts from a trusted
           source before minting or buying.
         </p>
