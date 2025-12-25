@@ -44,7 +44,7 @@ export const metadata: Metadata = {
       button: {
         title: "Open Base Guardian",
         action: {
-          type: "launch_frame",
+          type: "launch_miniapp",
           name: "Base Guardian",
           url: APP_URL,
           splashBackgroundColor: "#020611",
