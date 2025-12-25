@@ -1,7 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import sdk from "@farcaster/frame-sdk";
 import { OverviewTab } from "@/components/overview/OverviewTab";
 import { AssetsTab } from "@/components/assets/AssetsTab";
 import { SecurityTab } from "@/components/security/SecurityTab";
@@ -9,6 +10,11 @@ import { TabNav, TabId } from "@/components/layout/TabNav";
 
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
+
+  useEffect(() => {
+    // Helps Warpcast/Farcaster webviews know the app is ready.
+    sdk.actions.ready().catch(() => {});
+  }, []);
 
   return (
     <main className="min-h-screen text-neutral-100">
