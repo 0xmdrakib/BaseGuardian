@@ -39,13 +39,29 @@ export const metadata: Metadata = {
 
     // ✅ Makes Warpcast/Base show "Open Base Guardian"
     "fc:miniapp": JSON.stringify({
-      version: "next",
-      imageUrl: `${APP_URL}/preview.png`,
+      version: "1",
+      imageUrl: `${APP_URL}/embed.png`,
       button: {
         title: "Open Base Guardian",
         action: {
           type: "launch_frame",
+          name: "Base Guardian",
           url: APP_URL,
+          splashBackgroundColor: "#020611",
+        },
+      },
+    }),
+    // Backward compatibility
+    "fc:frame": JSON.stringify({
+      version: "1",
+      imageUrl: `${APP_URL}/embed.png`,
+      button: {
+        title: "Open Base Guardian",
+        action: {
+          type: "launch_frame",
+          name: "Base Guardian",
+          url: APP_URL,
+          splashBackgroundColor: "#020611",
         },
       },
     }),
