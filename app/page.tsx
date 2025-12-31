@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import sdk from "@farcaster/frame-sdk";
+import { sdk } from "@farcaster/miniapp-sdk";
 import { OverviewTab } from "@/components/overview/OverviewTab";
 import { AssetsTab } from "@/components/assets/AssetsTab";
 import { SecurityTab } from "@/components/security/SecurityTab";
@@ -16,35 +16,26 @@ export default function HomePage() {
     sdk.actions.ready().catch(() => {});
   }, []);
 
-
   const handleShare = async () => {
     const shareUrl = "https://baseguardian.vercel.app";
-
     const text = "I just used Base Guardian.";
-    const actions = (sdk as any).actions as any;
+
+    // Native Farcaster/Base cast composer (best UX). If this fails (e.g. not inside a client),
+    // we **do not** navigate away — we fall back to copying the share text instead.
+    try {
+      await sdk.actions.composeCast({ text, embeds: [shareUrl] });
+      return;
+    } catch (err) {
+      console.warn("composeCast failed:", err);
+    }
 
     try {
-      if (actions?.composeCast) {
-        await actions.composeCast({ text, embeds: [shareUrl] });
-        return;
-      }
-    } catch {}
-
-    const warpcastComposeUrl =
-      "https://warpcast.com/~/compose?text=" +
-      encodeURIComponent(text) +
-      "&embeds[]=" +
-      encodeURIComponent(shareUrl);
-
-    try {
-      if (actions?.openUrl) {
-        await actions.openUrl(warpcastComposeUrl);
-        return;
-      }
-    } catch {}
-
-    if (typeof window !== "undefined") {
-      window.open(warpcastComposeUrl, "_blank", "noopener,noreferrer");
+      await navigator.clipboard.writeText(`${text} ${shareUrl}`);
+      // eslint-disable-next-line no-alert
+      alert("Open Base/Warpcast to share. Copied text + link to your clipboard.");
+    } catch {
+      // eslint-disable-next-line no-alert
+      alert(`${text} ${shareUrl}`);
     }
   };
 
@@ -76,24 +67,29 @@ export default function HomePage() {
             <button
               type="button"
               onClick={handleShare}
-              className="btn btn-ghost h-9 w-9 shrink-0 rounded-xl p-0"
-              aria-label="Share"
-              title="Share"
+              className="btn btn-ghost h-9 shrink-0 gap-2 rounded-full px-3"
+              aria-label="Share as cast"
+              title="Share as cast"
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-4 w-4"
-                aria-hidden="true"
-              >
-                <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" />
-                <path d="M16 6l-4-4-4 4" />
-                <path d="M12 2v14" />
-              </svg>
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/10">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="h-3.5 w-3.5"
+                  aria-hidden="true"
+                >
+                  {/* Paper plane */}
+                  <path d="M22 2L11 13" />
+                  <path d="M22 2L15 22l-4-9-9-4 20-7z" />
+                </svg>
+              </span>
+              <span className="text-[11px] font-medium tracking-wide text-white/90">
+                Share
+              </span>
             </button>
           </header>
 
