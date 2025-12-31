@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import sdk from "@farcaster/frame-sdk";
+import { sdk } from "@farcaster/miniapp-sdk";
 import { OverviewTab } from "@/components/overview/OverviewTab";
 import { AssetsTab } from "@/components/assets/AssetsTab";
 import { SecurityTab } from "@/components/security/SecurityTab";
@@ -19,32 +19,19 @@ export default function HomePage() {
 
   const handleShare = async () => {
     const shareUrl = "https://baseguardian.vercel.app";
-
     const text = "I just used Base Guardian.";
-    const actions = (sdk as any).actions as any;
 
+    // Mini App native cast composer (Base app / Warpcast / other Farcaster hosts)
     try {
-      if (actions?.composeCast) {
-        await actions.composeCast({ text, embeds: [shareUrl] });
-        return;
+      await sdk.actions.composeCast({ text, embeds: [shareUrl] });
+      return;
+    } catch (e) {
+      // Don't kick the user out to a browser link — just explain why it can't open here.
+      if (typeof window !== "undefined") {
+        window.alert(
+          "Sharing opens the Farcaster cast composer only when this app is opened inside a Farcaster client (Base app / Warpcast)."
+        );
       }
-    } catch {}
-
-    const warpcastComposeUrl =
-      "https://warpcast.com/~/compose?text=" +
-      encodeURIComponent(text) +
-      "&embeds[]=" +
-      encodeURIComponent(shareUrl);
-
-    try {
-      if (actions?.openUrl) {
-        await actions.openUrl(warpcastComposeUrl);
-        return;
-      }
-    } catch {}
-
-    if (typeof window !== "undefined") {
-      window.open(warpcastComposeUrl, "_blank", "noopener,noreferrer");
     }
   };
 
