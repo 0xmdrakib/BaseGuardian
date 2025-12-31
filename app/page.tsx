@@ -16,6 +16,38 @@ export default function HomePage() {
     sdk.actions.ready().catch(() => {});
   }, []);
 
+
+  const handleShare = async () => {
+    const shareUrl = "https://baseguardian.vercel.app";
+
+    const text = "I just used Base Guardian.";
+    const actions = (sdk as any).actions as any;
+
+    try {
+      if (actions?.composeCast) {
+        await actions.composeCast({ text, embeds: [shareUrl] });
+        return;
+      }
+    } catch {}
+
+    const warpcastComposeUrl =
+      "https://warpcast.com/~/compose?text=" +
+      encodeURIComponent(text) +
+      "&embeds[]=" +
+      encodeURIComponent(shareUrl);
+
+    try {
+      if (actions?.openUrl) {
+        await actions.openUrl(warpcastComposeUrl);
+        return;
+      }
+    } catch {}
+
+    if (typeof window !== "undefined") {
+      window.open(warpcastComposeUrl, "_blank", "noopener,noreferrer");
+    }
+  };
+
   return (
     <main className="min-h-screen text-neutral-100">
       <div className="mx-auto flex max-w-lg flex-col gap-4 px-4 py-5 pb-[calc(env(safe-area-inset-bottom,0px)+16px)]">
@@ -40,6 +72,29 @@ export default function HomePage() {
                 </p>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={handleShare}
+              className="btn btn-ghost h-9 w-9 shrink-0 rounded-xl p-0"
+              aria-label="Share"
+              title="Share"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="h-4 w-4"
+                aria-hidden="true"
+              >
+                <path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" />
+                <path d="M16 6l-4-4-4 4" />
+                <path d="M12 2v14" />
+              </svg>
+            </button>
           </header>
 
           <div className="mt-4">
