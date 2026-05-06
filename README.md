@@ -114,44 +114,6 @@ npm run build
 npm run start
 ```
 
-## Project structure
-
-```text
-app/
-├── api/
-│   └── base/
-│       ├── nft/route.ts        # Base NFT collection scanner API
-│       ├── token-info/route.ts # Single Base token scanner API
-│       ├── tokens/route.ts     # Base wallet token portfolio API
-│       └── wallet/route.ts     # Base wallet activity summary API
-├── globals.css                 # Global styles and Tailwind utility classes
-├── head.tsx                    # Additional mini app and Open Graph meta tags
-├── layout.tsx                  # App metadata, Base/Farcaster mini app config, font setup
-├── page.tsx                    # Main tabbed app shell
-├── icon.png                    # Tab icon
-└── apple-icon.png              # iPhone icon
-components/
-├── assets/AssetsTab.tsx        # Token and NFT scanner tab
-├── layout/TabNav.tsx           # Overview / Scanner / Security navigation
-├── overview/OverviewTab.tsx    # Wallet overview and health score UI
-├── security/SecurityTab.tsx    # revoke.cash approval helper
-├── shared/                     # Reusable card and score badge components
-└── NftScannerCard.tsx          # NFT contract scanner card
-lib/
-├── alchemyBase.ts              # Base wallet activity and gas summary helpers
-├── alchemyTokens.ts            # Token balances, metadata, price, and scanner helpers
-├── baseNameResolve.ts          # 0x / .base.eth / .eth address resolver
-├── baseNft.ts                  # Base NFT metadata and health summary helpers
-└── fetchJson.ts                # Shared fetch helper
-public/
-├── .well-known/farcaster.json  # Farcaster/Base mini app manifest
-├── embed.png                   # Mini app embed image
-├── icon.png                    # App icon
-├── logo.png                    # UI logo
-├── preview.png                 # Social preview image
-└── splash.png                  # Mini app splash image
-```
-
 ---
 
 ## License
