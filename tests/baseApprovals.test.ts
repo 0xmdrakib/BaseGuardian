@@ -14,6 +14,7 @@ import {
   APPROVAL_TOPIC,
   PERMIT2_ADDRESS,
   decodeApprovalLog,
+  fetchApprovalLogsFromAlchemyHistory,
   fetchApprovalLogsAdaptive,
   reduceApprovalCandidates,
   verifyApprovalCandidates,
@@ -81,6 +82,97 @@ describe("approval log decoding", () => {
 });
 
 describe("adaptive approval history", () => {
+  it("paginates Alchemy wallet history and extracts only owner approval logs", async () => {
+    let calls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      calls += 1;
+      const body = JSON.parse(String(init?.body));
+      expect(body.addresses).toEqual([
+        { address: owner, networks: ["base-mainnet"] },
+      ]);
+      if (calls === 1) {
+        expect(body.after).toBeUndefined();
+        return new Response(
+          JSON.stringify({
+            after: "next-page",
+            transactions: [
+              {
+                hash: txHash,
+                blockNumber: 10,
+                logs: [
+                  {
+                    contractAddress: token,
+                    logIndex: 1,
+                    data: toHex(25n, { size: 32 }),
+                    topics: [APPROVAL_TOPIC, topic(owner), topic(delegate)],
+                  },
+                  {
+                    contractAddress: token,
+                    logIndex: 2,
+                    data: toHex(25n, { size: 32 }),
+                    topics: [
+                      APPROVAL_TOPIC,
+                      topic(delegate),
+                      topic(owner),
+                    ],
+                  },
+                ],
+              },
+            ],
+          })
+        );
+      }
+      expect(body.after).toBe("next-page");
+      return new Response(
+        JSON.stringify({
+          transactions: [
+            {
+              hash: `0x${"cd".repeat(32)}`,
+              blockNumber: 11,
+              logs: [
+                {
+                  contractAddress: token,
+                  logIndex: "0x0",
+                  data: toHex(1n, { size: 32 }),
+                  topics: [
+                    APPROVAL_FOR_ALL_TOPIC,
+                    topic(owner),
+                    topic(delegate),
+                  ],
+                },
+              ],
+            },
+          ],
+        })
+      );
+    });
+
+    const result = await fetchApprovalLogsFromAlchemyHistory(
+      "https://example.invalid/history",
+      owner,
+      100,
+      { deadlineMs: 5_000, requestTimeoutMs: 1_000 }
+    );
+
+    expect(result.complete).toBe(true);
+    expect(result.pages).toBe(2);
+    expect(result.logs).toHaveLength(2);
+  });
+
+  it("marks wallet history partial when pagination cannot finish", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ after: "more", transactions: [] }))
+    );
+    const result = await fetchApprovalLogsFromAlchemyHistory(
+      "https://example.invalid/history",
+      owner,
+      100,
+      { deadlineMs: 5_000, requestTimeoutMs: 1_000, maxPages: 1 }
+    );
+    expect(result.complete).toBe(false);
+    expect(result.pages).toBe(1);
+  });
+
   it("splits a range when the provider response reaches the log cap", async () => {
     let calls = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {

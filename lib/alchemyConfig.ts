@@ -64,3 +64,11 @@ export function getAlchemyPricesUrl() {
       )}/tokens/by-address`
     : "";
 }
+
+export function getAlchemyTransactionHistoryUrl(
+  config = requireAlchemyBaseConfig()
+) {
+  return `https://api.g.alchemy.com/data/v1/${encodeURIComponent(
+    config.apiKey
+  )}/transactions/history/by-address`;
+}

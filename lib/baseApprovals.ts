@@ -11,7 +11,10 @@ import {
   type Address,
   type Hex,
 } from "viem";
-import { requireAlchemyBaseConfig } from "./alchemyConfig";
+import {
+  getAlchemyTransactionHistoryUrl,
+  requireAlchemyBaseConfig,
+} from "./alchemyConfig";
 import type {
   ApprovalExposure,
   ApprovalKind,
@@ -80,6 +83,7 @@ type RpcResponse = {
 
 type ScanOptions = {
   rpcUrl?: string;
+  historyUrl?: string;
   deadlineMs?: number;
   maxLogRequests?: number;
   requestTimeoutMs?: number;
@@ -91,6 +95,28 @@ const DEFAULT_MAX_LOG_REQUESTS = 64;
 const DEFAULT_REQUEST_TIMEOUT_MS = 9_000;
 const MIN_SPLIT_SPAN = 2_000;
 const MAX_VERIFIED_CANDIDATES = 250;
+const HISTORY_PAGE_SIZE = 50;
+const DEFAULT_MAX_HISTORY_PAGES = 200;
+
+type HistoryLog = {
+  contractAddress?: string;
+  logIndex?: string | number;
+  data?: string;
+  removed?: boolean;
+  topics?: string[];
+};
+
+type HistoryTransaction = {
+  hash?: string;
+  blockNumber?: string | number;
+  logs?: HistoryLog[];
+};
+
+type HistoryResponse = {
+  after?: string | null;
+  pageKey?: string | null;
+  transactions?: HistoryTransaction[];
+};
 
 function toNumber(value: Hex) {
   return Number(BigInt(value));
@@ -98,6 +124,142 @@ function toNumber(value: Hex) {
 
 function toHexBlock(value: number) {
   return `0x${value.toString(16)}` as Hex;
+}
+
+function historyNumber(value: string | number | undefined) {
+  if (typeof value === "number") return value;
+  if (typeof value !== "string" || !value) return null;
+  try {
+    return Number(BigInt(value));
+  } catch {
+    return null;
+  }
+}
+
+function historyHex(value: string | number | undefined): Hex | null {
+  const parsed = historyNumber(value);
+  return parsed == null ? null : toHexBlock(parsed);
+}
+
+function approvalLogsFromHistoryPage(
+  transactions: HistoryTransaction[],
+  ownerTopic: Hex,
+  snapshotBlock: number
+) {
+  const logs: RpcLog[] = [];
+  for (const transaction of transactions) {
+    const blockNumber = historyNumber(transaction.blockNumber);
+    const transactionHash = transaction.hash;
+    if (
+      blockNumber == null ||
+      blockNumber > snapshotBlock ||
+      typeof transactionHash !== "string" ||
+      !/^0x[0-9a-fA-F]{64}$/.test(transactionHash)
+    ) {
+      continue;
+    }
+
+    for (const log of transaction.logs ?? []) {
+      const topics = log.topics;
+      const logIndex = historyHex(log.logIndex);
+      const topic0 = topics?.[0]?.toLowerCase();
+      if (
+        !Array.isArray(topics) ||
+        topics.length < 3 ||
+        topics[1]?.toLowerCase() !== ownerTopic.toLowerCase() ||
+        (topic0 !== APPROVAL_TOPIC && topic0 !== APPROVAL_FOR_ALL_TOPIC) ||
+        typeof log.contractAddress !== "string" ||
+        !/^0x[0-9a-fA-F]{40}$/.test(log.contractAddress) ||
+        !logIndex
+      ) {
+        continue;
+      }
+
+      logs.push({
+        address: log.contractAddress as Hex,
+        blockNumber: toHexBlock(blockNumber),
+        data:
+          typeof log.data === "string" && /^0x[0-9a-fA-F]*$/.test(log.data)
+            ? (log.data as Hex)
+            : "0x",
+        logIndex,
+        removed: log.removed,
+        topics: topics as Hex[],
+        transactionHash: transactionHash as Hex,
+      });
+    }
+  }
+  return logs;
+}
+
+/**
+ * Uses Alchemy's address index instead of walking every Base block. The same
+ * API key embedded in ALCHEMY_BASE_RPC_URL authenticates this endpoint.
+ */
+export async function fetchApprovalLogsFromAlchemyHistory(
+  historyUrl: string,
+  owner: Address,
+  snapshotBlock: number,
+  options: Pick<ScanOptions, "deadlineMs" | "requestTimeoutMs"> & {
+    maxPages?: number;
+  } = {}
+) {
+  const deadlineAt = Date.now() + (options.deadlineMs ?? DEFAULT_DEADLINE_MS);
+  const timeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const maxPages = options.maxPages ?? DEFAULT_MAX_HISTORY_PAGES;
+  const ownerTopic = pad(owner, { size: 32 });
+  const logs: RpcLog[] = [];
+  const seenCursors = new Set<string>();
+  let after: string | undefined;
+  let pages = 0;
+  let complete = false;
+
+  while (pages < maxPages && Date.now() < deadlineAt) {
+    const response = await fetch(historyUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        addresses: [{ address: owner, networks: ["base-mainnet"] }],
+        limit: HISTORY_PAGE_SIZE,
+        ...(after ? { after } : {}),
+      }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(
+        Math.min(timeoutMs, Math.max(1, deadlineAt - Date.now()))
+      ),
+    });
+    if (!response.ok) {
+      throw new Error(`Alchemy history returned HTTP ${response.status}.`);
+    }
+    const body = (await response.json()) as HistoryResponse;
+    if (!Array.isArray(body.transactions)) {
+      throw new Error("Alchemy history returned an invalid response.");
+    }
+
+    pages += 1;
+    logs.push(
+      ...approvalLogsFromHistoryPage(
+        body.transactions,
+        ownerTopic,
+        snapshotBlock
+      )
+    );
+
+    const next = body.after ?? body.pageKey ?? undefined;
+    if (!next) {
+      complete = true;
+      break;
+    }
+    if (seenCursors.has(next)) break;
+    seenCursors.add(next);
+    after = next;
+  }
+
+  const unique = new Map<string, RpcLog>();
+  for (const log of logs) {
+    unique.set(`${log.transactionHash.toLowerCase()}:${log.logIndex}`, log);
+  }
+  return { complete, logs: [...unique.values()], pages };
 }
 
 function topicAddress(topic?: Hex): Address | null {
@@ -645,16 +807,40 @@ export async function getBaseApprovalScan(
   owner: Address,
   options: ScanOptions = {}
 ): Promise<BaseApprovalScan> {
-  const rpcUrl = options.rpcUrl ?? requireAlchemyBaseConfig().rpcUrl;
+  const configured = options.rpcUrl ? null : requireAlchemyBaseConfig();
+  const rpcUrl = options.rpcUrl ?? configured!.rpcUrl;
   const timeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const snapshotHex = await rpcCall<Hex>(rpcUrl, "eth_blockNumber", [], timeoutMs);
   const snapshotBlock = toNumber(snapshotHex);
-  const discovery = await fetchApprovalLogsAdaptive(
-    rpcUrl,
-    owner,
-    snapshotBlock,
-    options
-  );
+  let discovery: { complete: boolean; logs: RpcLog[] };
+  const historyUrl =
+    options.historyUrl ??
+    (configured ? getAlchemyTransactionHistoryUrl(configured) : null);
+  if (historyUrl) {
+    try {
+      discovery = await fetchApprovalLogsFromAlchemyHistory(
+        historyUrl,
+        owner,
+        snapshotBlock,
+        options
+      );
+    } catch (error) {
+      console.error("Alchemy address-history approval discovery failed.", error);
+      discovery = await fetchApprovalLogsAdaptive(
+        rpcUrl,
+        owner,
+        snapshotBlock,
+        options
+      );
+    }
+  } else {
+    discovery = await fetchApprovalLogsAdaptive(
+      rpcUrl,
+      owner,
+      snapshotBlock,
+      options
+    );
+  }
   const candidates = reduceApprovalCandidates(discovery.logs);
   const candidateOverflow = candidates.length > MAX_VERIFIED_CANDIDATES;
   const candidatesToVerify = [...candidates]
