@@ -133,6 +133,7 @@ function getHealthBadgeProps(health: TokenHealth) {
 }
 
 function SingleTokenPanel({ token }: { token: SingleTokenInfoClient }) {
+  const [renderedAt] = useState(() => Date.now());
   const shortAddress =
     token.contractAddress.slice(0, 6) +
     "..." +
@@ -143,7 +144,7 @@ function SingleTokenPanel({ token }: { token: SingleTokenInfoClient }) {
   const createdAtLabel =
     token.pairCreatedAt && token.pairCreatedAt > 0
       ? `${Math.floor(
-        (Date.now() - token.pairCreatedAt) / (1000 * 60 * 60 * 24)
+        (renderedAt - token.pairCreatedAt) / (1000 * 60 * 60 * 24)
       )} days ago`
       : "Unknown";
 

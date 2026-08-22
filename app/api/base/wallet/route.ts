@@ -1,10 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import {
   getBaseWalletActivitySummary,
   formatCategoryLabel,
   type BaseWalletActivitySummary,
 } from "@/lib/alchemyBase";
 import { resolveBaseAddressOrName } from "@/lib/baseNameResolve";
+import { protectBaseApi } from "@/lib/apiProtection";
+import { errorJson, publicJson } from "@/lib/apiResponses";
+import { validateWalletAddressOrName } from "@/lib/apiValidation";
 
 type WalletActivity = {
   address: string;
@@ -48,19 +51,16 @@ function setCachedSummary(address: string, summary: BaseWalletActivitySummary) {
 }
 
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const rawInput = searchParams.get("address");
+  const denied = await protectBaseApi(req, "wallet");
+  if (denied) return denied;
 
-  if (!rawInput) {
-    return NextResponse.json(
-      { error: "Missing address query param" },
-      { status: 400 }
-    );
-  }
+  const { searchParams } = new URL(req.url);
+  const input = validateWalletAddressOrName(searchParams.get("address"));
+  if (!input.ok) return errorJson(input.error, 400);
 
   try {
     // Accept 0x address OR .base.eth name, resolve to 0x
-    const resolvedAddress = await resolveBaseAddressOrName(rawInput);
+    const resolvedAddress = await resolveBaseAddressOrName(input.value);
 
     // Try cache
     let summary = getCachedSummary(resolvedAddress);
@@ -85,15 +85,9 @@ export async function GET(req: NextRequest) {
       },
     };
 
-    return NextResponse.json(payload);
-  } catch (err: any) {
+    return publicJson(payload, 120);
+  } catch (err: unknown) {
     console.error("Error in Base wallet summary", err);
-    return NextResponse.json(
-      {
-        error: "Failed to fetch Base wallet summary",
-        debug: err instanceof Error ? err.message : String(err ?? ""),
-      },
-      { status: 500 }
-    );
+    return errorJson("Failed to fetch Base wallet summary", 500);
   }
 }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import React from "react";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { Providers } from "@/components/wallet/Providers";
 
 const APP_URL = "https://baseguardian.vercel.app";
 const APP_ID = "693acb1de6be54f5ed71d631"; // your app_id
@@ -76,7 +77,9 @@ const inter = Inter({
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={inter.variable}>
-      <body className="min-h-screen font-sans">{children}</body>
+      <body className="min-h-screen font-sans">
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

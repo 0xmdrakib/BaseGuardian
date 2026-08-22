@@ -1,43 +1,28 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getBaseSingleTokenInfo } from "@/lib/alchemyTokens";
+import { protectBaseApi } from "@/lib/apiProtection";
+import { errorJson, publicJson } from "@/lib/apiResponses";
+import { validateEvmAddress } from "@/lib/apiValidation";
 
 export async function GET(req: NextRequest) {
+  const denied = await protectBaseApi(req, "token-info");
+  if (denied) return denied;
+
   const { searchParams } = new URL(req.url);
-  const address = searchParams.get("address");
-
-  if (!address) {
-    return NextResponse.json(
-      { error: "Missing address query param" },
-      { status: 400 }
-    );
-  }
-
-  if (!address.startsWith("0x") || address.length < 10) {
-    return NextResponse.json(
-      { error: "Address must be a valid 0x-prefixed string" },
-      { status: 400 }
-    );
-  }
+  const input = validateEvmAddress(searchParams.get("address"));
+  if (!input.ok) return errorJson(input.error, 400);
+  const address = input.value;
 
   try {
     const info = await getBaseSingleTokenInfo(address);
 
     if (!info) {
-      return NextResponse.json(
-        { error: "Token not found on Base or metadata unavailable" },
-        { status: 404 }
-      );
+      return errorJson("Token not found on Base or metadata unavailable", 404);
     }
 
-    return NextResponse.json(info);
-  } catch (err: any) {
+    return publicJson(info, 180);
+  } catch (err: unknown) {
     console.error("Error in Base single token info", err);
-    return NextResponse.json(
-      {
-        error: "Failed to fetch Base token info",
-        debug: err instanceof Error ? err.message : String(err ?? ""),
-      },
-      { status: 500 }
-    );
+    return errorJson("Failed to fetch Base token info", 500);
   }
 }

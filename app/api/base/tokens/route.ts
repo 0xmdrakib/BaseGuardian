@@ -1,8 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import {
   getBaseTokenPortfolio,
   BaseTokenSummary,
 } from "@/lib/alchemyTokens";
+import { protectBaseApi } from "@/lib/apiProtection";
+import { errorJson, publicJson } from "@/lib/apiResponses";
+import { validateEvmAddress } from "@/lib/apiValidation";
 
 type TokenScanResponse = {
   address: string;
@@ -11,22 +14,13 @@ type TokenScanResponse = {
 };
 
 export async function GET(req: NextRequest) {
+  const denied = await protectBaseApi(req, "tokens");
+  if (denied) return denied;
+
   const { searchParams } = new URL(req.url);
-  const address = searchParams.get("address");
-
-  if (!address) {
-    return NextResponse.json(
-      { error: "Missing address query param" },
-      { status: 400 }
-    );
-  }
-
-  if (!address.startsWith("0x") || address.length < 10) {
-    return NextResponse.json(
-      { error: "Address must be a valid 0x-prefixed string" },
-      { status: 400 }
-    );
-  }
+  const input = validateEvmAddress(searchParams.get("address"));
+  if (!input.ok) return errorJson(input.error, 400);
+  const address = input.value;
 
   try {
     const tokens = await getBaseTokenPortfolio(address);
@@ -37,16 +31,9 @@ export async function GET(req: NextRequest) {
       tokens,
     };
 
-    return NextResponse.json(payload);
-  } catch (err: any) {
+    return publicJson(payload, 120);
+  } catch (err: unknown) {
     console.error("Error in Base token scan", err);
-    return NextResponse.json(
-      {
-        error: "Failed to scan Base tokens",
-        debug:
-          err instanceof Error ? err.message : String(err ?? ""),
-      },
-      { status: 500 }
-    );
+    return errorJson("Failed to scan Base tokens", 500);
   }
 }

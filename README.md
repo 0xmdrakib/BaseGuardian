@@ -29,7 +29,10 @@ The app is designed as both a regular web app and a Farcaster/Base mini app. It 
 - NFT collection scanner for Base NFT contracts
 - NFT metadata and transfer-derived hints such as token standard, total supply, estimated holders, sample token ID, and collection health label
 - Approval checker that opens revoke.cash directly on the Base network
-- Farcaster/Base mini app metadata with app verification, splash assets, embed image, and native cast sharing support
+- Injected browser-wallet and WalletConnect support with Base mainnet network handling
+- Connected-wallet address autofill with independent manual overrides in wallet checks
+- Cloudflare edge protection with a dependency-free per-instance API rate-limit fallback
+- Farcaster/Base mini app metadata with app verification, splash assets, and embed image
 - Mobile-first dark UI built with reusable cards, tabs, badges, and Tailwind utility classes
 
 ## Supported network
@@ -74,10 +77,34 @@ The app is designed as both a regular web app and a Farcaster/Base mini app. It 
 - TypeScript
 - Tailwind CSS
 - Farcaster Mini App SDK
+- Wagmi, Viem, and WalletConnect
+- Cloudflare WAF and rate limiting
 - ethers
 - Alchemy RPC and token APIs
 - DexScreener token API
 - revoke.cash approval review links
+
+## Environment setup
+
+Copy `.env.example` to `.env.local` and configure both values:
+
+```bash
+ALCHEMY_BASE_API_KEY=your_alchemy_base_key
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_reown_project_id
+```
+
+The WalletConnect Project ID is required. API abuse protection uses the existing
+Cloudflare proxy at the edge and a dependency-free per-instance fallback in the
+application. See [`docs/CLOUDFLARE.md`](./docs/CLOUDFLARE.md) for the dashboard
+settings.
+
+Run the verification suite with:
+
+```bash
+npm test
+npm run lint
+npm run build
+```
 
 ---
 

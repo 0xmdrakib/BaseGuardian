@@ -7,34 +7,17 @@ import { OverviewTab } from "@/components/overview/OverviewTab";
 import { AssetsTab } from "@/components/assets/AssetsTab";
 import { SecurityTab } from "@/components/security/SecurityTab";
 import { TabNav, TabId } from "@/components/layout/TabNav";
+import { WalletStatusButton } from "@/components/wallet/WalletStatusButton";
+import { useWallet } from "@/components/wallet/WalletContext";
 
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const wallet = useWallet();
 
   useEffect(() => {
     // Helps Warpcast/Farcaster webviews know the app is ready.
     sdk.actions.ready().catch(() => {});
   }, []);
-
-
-  const handleShare = async () => {
-    const shareUrl = "https://baseguardian.vercel.app";
-    const text = "I just used Base Guardian.";
-
-    // Mini App native cast composer (Base app / Warpcast / other Farcaster hosts)
-    try {
-      await sdk.actions.composeCast({ text, embeds: [shareUrl] });
-      return;
-    } catch (e) {
-      // Don't kick the user out to a browser link — just explain why it can't open here.
-      if (typeof window !== "undefined") {
-        window.alert(
-          "Sharing opens the Farcaster cast composer only when this app is opened inside a Farcaster client (Base app / Warpcast)."
-        );
-      }
-    }
-  };
-
   return (
     <main className="min-h-screen text-neutral-100">
       <div className="mx-auto flex max-w-lg flex-col gap-4 px-4 py-5 pb-[calc(env(safe-area-inset-bottom,0px)+16px)]">
@@ -60,31 +43,22 @@ export default function HomePage() {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handleShare}
-              className="group inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/5 ring-1 ring-white/10 transition hover:bg-white/10 active:scale-95"
-              aria-label="Share"
-              title="Share"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="h-5 w-5 transition-transform group-hover:scale-105"
-                aria-hidden="true"
-              >
-                <circle cx="18" cy="5" r="3" />
-                <circle cx="6" cy="12" r="3" />
-                <circle cx="18" cy="19" r="3" />
-                <path d="M8.59 13.51 15.42 17.49" />
-                <path d="M15.41 6.51 8.59 10.49" />
-              </svg>
-            </button>
+            <WalletStatusButton />
           </header>
+
+          {wallet.error && (
+            <div className="mt-3 flex items-start justify-between gap-3 rounded-xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-100" role="alert">
+              <span>{wallet.error}</span>
+              <button
+                type="button"
+                onClick={wallet.clearError}
+                className="shrink-0 text-amber-100/60 transition hover:text-amber-100"
+                aria-label="Dismiss wallet message"
+              >
+                ×
+              </button>
+            </div>
+          )}
 
           <div className="mt-4">
             {/* Tabs */}
@@ -99,7 +73,7 @@ export default function HomePage() {
           </div>
 
           <footer className="mt-4 text-center text-[10px] text-neutral-500">
-            Build for Base 💙 By 0xmdrakib.base.eth
+            © 2026 Md. Rakib&nbsp;&nbsp;made with love and passion.
           </footer>
         </div>
       </div>

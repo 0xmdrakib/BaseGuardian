@@ -1,10 +1,16 @@
 "use client";
 
-import { useState } from "react";
 import { Card } from "@/components/shared/Card";
+import { useSmartWalletInput } from "@/components/wallet/useSmartWalletInput";
 
 export function SecurityTab() {
-  const [approvalAddress, setApprovalAddress] = useState("");
+  const {
+    connectedAddress,
+    differsFromConnectedWallet,
+    setValue: setApprovalAddress,
+    useConnectedWallet,
+    value: approvalAddress,
+  } = useSmartWalletInput();
 
   const trimmed = approvalAddress.trim();
   const revokeUrl = trimmed
@@ -43,6 +49,16 @@ export function SecurityTab() {
               Open revoke.cash
             </a>
           </div>
+
+          {connectedAddress && differsFromConnectedWallet && (
+            <button
+              type="button"
+              onClick={useConnectedWallet}
+              className="text-[10px] font-medium text-blue-300 transition hover:text-blue-200"
+            >
+              Use connected wallet
+            </button>
+          )}
 
           <p className="text-[11px] text-neutral-500">
             On revoke.cash, make sure the Base network is selected. Focus

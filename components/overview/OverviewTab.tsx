@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Card } from "@/components/shared/Card";
 import { ScoreBadge } from "@/components/shared/ScoreBadge";
+import { useSmartWalletInput } from "@/components/wallet/useSmartWalletInput";
 
 type WalletSummary = {
   address: string;
@@ -20,11 +21,18 @@ type WalletSummary = {
 
 export function OverviewTab() {
   // ---------- Wallet analysis ----------
-  const [walletAddress, setWalletAddress] = useState<string>("");
+  const {
+    connectedAddress,
+    differsFromConnectedWallet,
+    setValue: setWalletAddress,
+    useConnectedWallet,
+    value: walletAddress,
+  } = useSmartWalletInput();
   const [walletLoading, setWalletLoading] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
   const [walletSummary, setWalletSummary] =
     useState<WalletSummary | null>(null);
+  const [analysisFor, setAnalysisFor] = useState("");
 
   // ---------- Wallet overview ----------
   const handleAnalyzeWallet = async () => {
@@ -32,6 +40,7 @@ export function OverviewTab() {
     setWalletSummary(null);
 
     const trimmed = walletAddress.trim();
+    setAnalysisFor(trimmed.toLowerCase());
     if (!trimmed) {
       setWalletError(
         "Paste a Base wallet address 0x... (Base wallet address)."
@@ -57,12 +66,15 @@ export function OverviewTab() {
     }
   };
 
-  const walletHealth = walletSummary
-    ? computeWalletHealth(walletSummary.summary)
+  const currentInput = walletAddress.trim().toLowerCase();
+  const visibleWalletSummary = analysisFor === currentInput ? walletSummary : null;
+  const visibleWalletError = analysisFor === currentInput ? walletError : null;
+  const walletHealth = visibleWalletSummary
+    ? computeWalletHealth(visibleWalletSummary.summary)
     : null;
 
-  const onchainSnapshot = walletSummary
-    ? computeOnchainSnapshot(walletSummary.summary)
+  const onchainSnapshot = visibleWalletSummary
+    ? computeOnchainSnapshot(visibleWalletSummary.summary)
     : null;
 
   return (
@@ -89,32 +101,42 @@ export function OverviewTab() {
             </button>
           </div>
 
-          {walletError && (
-            <p className="text-[11px] text-rose-300">{walletError}</p>
+          {connectedAddress && differsFromConnectedWallet && (
+            <button
+              type="button"
+              onClick={useConnectedWallet}
+              className="text-[10px] font-medium text-blue-300 transition hover:text-blue-200"
+            >
+              Use connected wallet
+            </button>
           )}
 
-          {walletSummary && (
+          {visibleWalletError && (
+            <p className="text-[11px] text-rose-300">{visibleWalletError}</p>
+          )}
+
+          {visibleWalletSummary && (
             <div className="grid grid-cols-2 gap-2">
               <Metric
                 label="Gas (30d)"
-                value={`${walletSummary.summary.last30dGasEth} ETH`}
+                value={`${visibleWalletSummary.summary.last30dGasEth} ETH`}
               />
               <Metric
                 label="Tx count (30d)"
-                value={String(walletSummary.summary.last30dTxCount)}
+                value={String(visibleWalletSummary.summary.last30dTxCount)}
               />
               <Metric
                 label="Gas (lifetime)"
-                value={`${walletSummary.summary.lifetimeGasEth} ETH`}
+                value={`${visibleWalletSummary.summary.lifetimeGasEth} ETH`}
               />
               <Metric
                 label="Tx count (lifetime)"
-                value={String(walletSummary.summary.lifetimeTxCount)}
+                value={String(visibleWalletSummary.summary.lifetimeTxCount)}
               />
             </div>
           )}
 
-          {!walletSummary && !walletError && !walletLoading && (
+          {!visibleWalletSummary && !visibleWalletError && !walletLoading && (
             <p className="text-[11px] text-white/50">
               This looks is your recent activity on Base chain (last ~30 days),
               plus full lifetime history yet.
