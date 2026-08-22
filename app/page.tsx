@@ -72,10 +72,11 @@ export default function HomePage() {
             </div>
           </div>
 
-          <footer className="mt-4 text-center text-[10px] text-neutral-500">
-            © 2026 Md. Rakib&nbsp;&nbsp;made with love and passion.
-          </footer>
         </div>
+
+        <footer className="text-center text-[10px] text-neutral-500">
+          © 2026 Md. Rakib • made with love and passion.
+        </footer>
       </div>
     </main>
   );
