@@ -44,9 +44,20 @@ export function WalletStatusButton() {
         <span className="wallet-status-dot" aria-hidden="true" />
         <span>{label}</span>
         {!wallet.isConnected && !pending && (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            <path d="M4 7h15a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H7a3 3 0 0 1-3-3V7Z" />
-            <path d="M16 13h2" />
+          <svg
+            className="wallet-status-wallet-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M5 7V5.75A1.75 1.75 0 0 1 6.75 4h10.5A1.75 1.75 0 0 1 19 5.75V7" />
+            <rect x="3" y="7" width="18" height="13" rx="3" />
+            <path d="M16 11h5v5h-5a2.5 2.5 0 0 1 0-5Z" />
+            <circle cx="16.5" cy="13.5" r="0.75" fill="currentColor" stroke="none" />
           </svg>
         )}
         {pending && <span className="wallet-spinner" aria-hidden="true" />}
