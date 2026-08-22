@@ -5,6 +5,7 @@ import "./globals.css";
 import { Providers } from "@/components/wallet/Providers";
 
 const APP_URL = "https://baseguardian.rakibhq.xyz";
+const BASE_APP_ID = "693acb1de6be54f5ed71d631";
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
@@ -33,6 +34,9 @@ export const metadata: Metadata = {
     apple: "/icon.png",
   },
 
+  other: {
+    "base:app_id": BASE_APP_ID,
+  },
 };
 
 const inter = Inter({
