@@ -1,18 +1,13 @@
 import { JsonRpcProvider } from "ethers";
+import { requireAlchemyBaseConfig } from "@/lib/alchemyConfig";
 
 let provider: JsonRpcProvider | null = null;
 
 function getProvider(): JsonRpcProvider {
   if (provider) return provider;
 
-  const key = process.env.ALCHEMY_BASE_API_KEY;
-  if (!key) {
-    throw new Error("ALCHEMY_BASE_API_KEY is not set");
-  }
-
-  provider = new JsonRpcProvider(
-    `https://base-mainnet.g.alchemy.com/v2/${key}`
-  );
+  const { rpcUrl } = requireAlchemyBaseConfig();
+  provider = new JsonRpcProvider(rpcUrl);
   return provider;
 }
 

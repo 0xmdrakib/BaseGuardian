@@ -1,18 +1,12 @@
 // lib/baseNft.ts
 // Simple Base NFT collection summary using only Alchemy RPC (no OpenSea).
 
-const ALCHEMY_BASE_API_KEY = process.env.ALCHEMY_BASE_API_KEY;
-
-const BASE_URL = ALCHEMY_BASE_API_KEY
-  ? `https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_BASE_API_KEY}`
-  : "";
+import { requireAlchemyBaseConfig } from "@/lib/alchemyConfig";
 
 async function callAlchemy(body: any): Promise<any> {
-  if (!BASE_URL) {
-    throw new Error("Missing ALCHEMY_BASE_API_KEY env");
-  }
+  const { rpcUrl } = requireAlchemyBaseConfig();
 
-  const res = await fetch(BASE_URL, {
+  const res = await fetch(rpcUrl, {
     method: "POST",
     headers: {
       "content-type": "application/json",

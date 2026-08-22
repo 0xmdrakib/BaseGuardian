@@ -1,12 +1,7 @@
-const ALCHEMY_BASE_API_KEY = process.env.ALCHEMY_BASE_API_KEY;
-
-const BASE_RPC_URL = ALCHEMY_BASE_API_KEY
-  ? `https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_BASE_API_KEY}`
-  : "";
-
-const PRICES_URL = ALCHEMY_BASE_API_KEY
-  ? `https://api.g.alchemy.com/prices/v1/${ALCHEMY_BASE_API_KEY}/tokens/by-address`
-  : "";
+import {
+  getAlchemyPricesUrl,
+  requireAlchemyBaseConfig,
+} from "@/lib/alchemyConfig";
 
 type AlchemyError = {
   code: number;
@@ -77,11 +72,9 @@ export type BaseTokenSummary = {
 };
 
 async function rpcRequest(body: any): Promise<any> {
-  if (!BASE_RPC_URL) {
-    throw new Error("ALCHEMY_BASE_API_KEY is not configured in .env.local");
-  }
+  const { rpcUrl } = requireAlchemyBaseConfig();
 
-  const res = await fetch(BASE_RPC_URL, {
+  const res = await fetch(rpcUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -148,6 +141,7 @@ async function fetchTokenMetadata(
 async function fetchPricesByAddress(
   addresses: string[]
 ): Promise<Record<string, number | null>> {
+  const PRICES_URL = getAlchemyPricesUrl();
   if (!PRICES_URL) {
     return {};
   }
@@ -688,4 +682,3 @@ export async function getBaseSingleTokenInfo(
     reasons,
   };
 }
-

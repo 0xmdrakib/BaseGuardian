@@ -4,11 +4,7 @@
 // - Reads tx receipts for outgoing tx to compute real gasUsed * gasPrice
 // - Returns 30d + lifetime tx & gas, plus basic activity stats.
 
-const ALCHEMY_BASE_API_KEY = process.env.ALCHEMY_BASE_API_KEY;
-
-const BASE_RPC_URL = ALCHEMY_BASE_API_KEY
-  ? `https://base-mainnet.g.alchemy.com/v2/${ALCHEMY_BASE_API_KEY}`
-  : "";
+import { requireAlchemyBaseConfig } from "@/lib/alchemyConfig";
 
 type Direction = "fromAddress" | "toAddress";
 
@@ -47,11 +43,9 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 // ---------- Low-level RPC helper ----------
 
 async function callAlchemy(body: unknown): Promise<any> {
-  if (!BASE_RPC_URL) {
-    throw new Error("ALCHEMY_BASE_API_KEY is not configured in .env.local");
-  }
+  const { rpcUrl } = requireAlchemyBaseConfig();
 
-  const res = await fetch(BASE_RPC_URL, {
+  const res = await fetch(rpcUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

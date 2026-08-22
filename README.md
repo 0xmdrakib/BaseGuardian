@@ -90,7 +90,7 @@ The app is designed as both a regular web app and a Farcaster/Base mini app. It 
 Copy `.env.example` to `.env.local` and configure these values:
 
 ```bash
-ALCHEMY_BASE_API_KEY=your_alchemy_base_key
+ALCHEMY_BASE_RPC_URL=https://base-mainnet.g.alchemy.com/v2/your_alchemy_api_key
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_reown_project_id
 NEXT_PUBLIC_BASE_BUILDER_CODE=your_base_dev_builder_code
 ```
@@ -99,6 +99,10 @@ The WalletConnect Project ID is required. Get the public Builder Code from
 **base.dev > Settings > Builder Code**. When it is configured, the Wagmi client
 automatically adds its ERC-8021 attribution suffix to future transactions; no
 transaction UI is enabled by this setting alone.
+
+`ALCHEMY_BASE_RPC_URL` is the recommended Alchemy setting. For compatibility,
+the older `ALCHEMY_BASE_API_KEY` variable accepts either a raw API key or the
+complete Base Mainnet RPC URL.
 
 API abuse protection uses the existing
 Cloudflare proxy at the edge and a dependency-free per-instance fallback in the
