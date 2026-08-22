@@ -563,8 +563,8 @@
   }
 
   .wallet-choice-icon.walletconnect-icon {
-    border-color: rgba(255, 255, 255, 0.14);
-    background: #1c1c1c;
+    border-color: rgba(59, 153, 252, 0.55);
+    background: #3b99fc;
   }
 
   .wallet-choice-copy {
