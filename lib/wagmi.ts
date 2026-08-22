@@ -1,11 +1,13 @@
 import { createConfig, http } from "wagmi";
 import { base } from "wagmi/chains";
 import { injected, walletConnect } from "wagmi/connectors";
+import { getBuilderCodeDataSuffix } from "@/lib/builderCode";
 
 const APP_URL = "https://baseguardian.rakibhq.xyz";
 
 function createWagmiConfig() {
   const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+  const dataSuffix = getBuilderCodeDataSuffix();
 
   if (!projectId) {
     throw new Error(
@@ -36,6 +38,7 @@ function createWagmiConfig() {
     connectors,
     multiInjectedProviderDiscovery: true,
     ssr: true,
+    ...(dataSuffix ? { dataSuffix } : {}),
     transports: {
       [base.id]: http(),
     },

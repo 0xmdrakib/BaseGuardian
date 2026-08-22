@@ -30,6 +30,7 @@ The app is designed as both a regular web app and a Farcaster/Base mini app. It 
 - NFT metadata and transfer-derived hints such as token standard, total supply, estimated holders, sample token ID, and collection health label
 - Approval checker that opens revoke.cash directly on the Base network
 - Injected browser-wallet and WalletConnect support with Base mainnet network handling
+- ERC-8021 Builder Code attribution, automatically applied to future Wagmi transactions
 - Connected-wallet address autofill with independent manual overrides in wallet checks
 - Cloudflare edge protection with a dependency-free per-instance API rate-limit fallback
 - Farcaster/Base mini app metadata with app verification, splash assets, and embed image
@@ -86,14 +87,20 @@ The app is designed as both a regular web app and a Farcaster/Base mini app. It 
 
 ## Environment setup
 
-Copy `.env.example` to `.env.local` and configure both values:
+Copy `.env.example` to `.env.local` and configure these values:
 
 ```bash
 ALCHEMY_BASE_API_KEY=your_alchemy_base_key
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_reown_project_id
+NEXT_PUBLIC_BASE_BUILDER_CODE=your_base_dev_builder_code
 ```
 
-The WalletConnect Project ID is required. API abuse protection uses the existing
+The WalletConnect Project ID is required. Get the public Builder Code from
+**base.dev > Settings > Builder Code**. When it is configured, the Wagmi client
+automatically adds its ERC-8021 attribution suffix to future transactions; no
+transaction UI is enabled by this setting alone.
+
+API abuse protection uses the existing
 Cloudflare proxy at the edge and a dependency-free per-instance fallback in the
 application. See [`docs/CLOUDFLARE.md`](./docs/CLOUDFLARE.md) for the dashboard
 settings.
