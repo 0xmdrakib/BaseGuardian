@@ -99,10 +99,11 @@ const MAX_VERIFIED_CANDIDATES = 250;
 const HISTORY_PAGE_SIZE = 50;
 const DEFAULT_MAX_HISTORY_PAGES = 200;
 const DEFAULT_MAX_TRANSFER_PAGES = 100;
-const MAX_TRANSFER_RECEIPTS = 5_000;
-const RPC_BATCH_SIZE = 20;
+const MAX_TRANSFER_RECEIPTS = 1_000;
+const RPC_BATCH_SIZE = 10;
 const RPC_BATCH_RETRIES = 3;
-const RPC_BATCH_CONCURRENCY = 2;
+const RPC_BATCH_CONCURRENCY = 1;
+const RPC_BATCH_GAP_MS = 300;
 
 type HistoryLog = {
   contractAddress?: string;
@@ -536,9 +537,7 @@ async function rpcBatch(
           });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const bodies = (await response.json()) as RpcResponse[];
-          const received = new Set<number>();
           for (const body of bodies) {
-            received.add(body.id);
             const message = body.error?.message?.toLowerCase() ?? "";
             const retryable =
               body.error &&
@@ -549,19 +548,18 @@ async function rpcBatch(
                 message.includes("capacity"));
             if (!retryable) output.set(body.id, body);
           }
-          pending = pending.filter(
-            (request) =>
-              !output.has(request.id) &&
-              (!received.has(request.id) || !output.has(request.id))
-          );
+          pending = pending.filter((request) => !output.has(request.id));
         } catch {
           // Retry the whole unresolved subset below.
         }
         if (pending.length && attempt + 1 < RPC_BATCH_RETRIES) {
           await new Promise((resolve) =>
-            setTimeout(resolve, 150 * 2 ** attempt)
+            setTimeout(resolve, 1_000 * 2 ** attempt)
           );
         }
+      }
+      if (nextChunk < chunks.length) {
+        await new Promise((resolve) => setTimeout(resolve, RPC_BATCH_GAP_MS));
       }
     }
   }
@@ -1024,6 +1022,9 @@ export async function getBaseApprovalScan(
       b.blockNumber - a.blockNumber || b.logIndex - a.logIndex
     )
     .slice(0, MAX_VERIFIED_CANDIDATES);
+  if (configured && candidatesToVerify.length > 0) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
   const approvals = await verifyApprovalCandidates(
     rpcUrl,
     owner,
