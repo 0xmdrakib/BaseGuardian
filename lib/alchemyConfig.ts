@@ -8,28 +8,14 @@ export type AlchemyBaseConfig = {
 
 type AlchemyEnv = {
   ALCHEMY_BASE_RPC_URL?: string;
-  ALCHEMY_BASE_API_URL?: string;
-  ALCHEMY_BASE_API_KEY?: string;
 };
 
 export function getAlchemyBaseConfig(env?: AlchemyEnv): AlchemyBaseConfig | null {
   const source = env ?? {
     ALCHEMY_BASE_RPC_URL: process.env.ALCHEMY_BASE_RPC_URL,
-    ALCHEMY_BASE_API_URL: process.env.ALCHEMY_BASE_API_URL,
-    ALCHEMY_BASE_API_KEY: process.env.ALCHEMY_BASE_API_KEY,
   };
-  const configured =
-    source.ALCHEMY_BASE_RPC_URL?.trim() ||
-    source.ALCHEMY_BASE_API_URL?.trim() ||
-    source.ALCHEMY_BASE_API_KEY?.trim();
+  const configured = source.ALCHEMY_BASE_RPC_URL?.trim();
   if (!configured) return null;
-
-  if (!configured.startsWith("http://") && !configured.startsWith("https://")) {
-    return {
-      apiKey: configured,
-      rpcUrl: `${ALCHEMY_BASE_PREFIX}${configured}`,
-    };
-  }
 
   let url: URL;
   try {
@@ -65,9 +51,7 @@ export function getAlchemyBaseConfig(env?: AlchemyEnv): AlchemyBaseConfig | null
 export function requireAlchemyBaseConfig() {
   const config = getAlchemyBaseConfig();
   if (!config) {
-    throw new Error(
-      "Set ALCHEMY_BASE_RPC_URL, ALCHEMY_BASE_API_URL, or ALCHEMY_BASE_API_KEY."
-    );
+    throw new Error("Set ALCHEMY_BASE_RPC_URL.");
   }
   return config;
 }

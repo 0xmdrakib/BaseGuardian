@@ -15,37 +15,8 @@ describe("Alchemy Base configuration", () => {
     });
   });
 
-  it("keeps supporting a raw API key in the legacy variable", () => {
-    expect(getAlchemyBaseConfig({ ALCHEMY_BASE_API_KEY: "example-key" })).toEqual(
-      {
-        apiKey: "example-key",
-        rpcUrl: "https://base-mainnet.g.alchemy.com/v2/example-key",
-      }
-    );
-  });
-
-  it("keeps supporting the previous API URL variable", () => {
-    expect(
-      getAlchemyBaseConfig({
-        ALCHEMY_BASE_API_URL:
-          "https://base-mainnet.g.alchemy.com/v2/example-key",
-      })
-    ).toEqual({
-      apiKey: "example-key",
-      rpcUrl: "https://base-mainnet.g.alchemy.com/v2/example-key",
-    });
-  });
-
-  it("accepts a full RPC URL in the legacy variable", () => {
-    expect(
-      getAlchemyBaseConfig({
-        ALCHEMY_BASE_API_KEY:
-          "https://base-mainnet.g.alchemy.com/v2/example-key",
-      })
-    ).toEqual({
-      apiKey: "example-key",
-      rpcUrl: "https://base-mainnet.g.alchemy.com/v2/example-key",
-    });
+  it("stays unconfigured when the new RPC URL variable is absent", () => {
+    expect(getAlchemyBaseConfig({})).toBeNull();
   });
 
   it("rejects non-Base or malformed RPC URLs", () => {
