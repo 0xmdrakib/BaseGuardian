@@ -2,7 +2,7 @@
 
 Base Guardian is a Base wallet health and security mini app for checking wallet activity, token risk hints, NFT collection signals, and approval cleanup links.
 
-**Live app:** https://baseguardian.vercel.app
+**Live app:** https://baseguardian.rakibhq.xyz
 
 ---
 
@@ -78,41 +78,6 @@ The app is designed as both a regular web app and a Farcaster/Base mini app. It 
 - Alchemy RPC and token APIs
 - DexScreener token API
 - revoke.cash approval review links
-
----
-
-## Getting started
-
-### 1. Install dependencies
-
-```bash
-npm install
-```
-
-### 2. Configure environment variables
-
-Create a `.env` file in the project root. Then copy the values from [.env.example](./.env.example) and fill them in.
-
-```bash
-ALCHEMY_BASE_API_KEY=your_alchemy_base_api_key
-```
-
-The Alchemy key is required for wallet activity, token metadata, token balances, and NFT collection scans on Base.
-
-### 3. Run the development server
-
-```bash
-npm run dev
-```
-
-Open `http://localhost:3000` in your browser.
-
-### 4. Build for production
-
-```bash
-npm run build
-npm run start
-```
 
 ---
 
