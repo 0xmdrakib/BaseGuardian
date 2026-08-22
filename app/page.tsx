@@ -74,7 +74,7 @@ export default function HomePage() {
 
         </div>
 
-        <footer className="text-center text-[10px] text-neutral-500">
+        <footer className="text-center text-[11px] font-medium text-neutral-400">
           © 2026 Md. Rakib • made with love and passion.
         </footer>
       </div>
