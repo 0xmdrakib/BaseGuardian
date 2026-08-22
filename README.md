@@ -100,9 +100,10 @@ The WalletConnect Project ID is required. Get the public Builder Code from
 automatically adds its ERC-8021 attribution suffix to future transactions; no
 transaction UI is enabled by this setting alone.
 
-`ALCHEMY_BASE_RPC_URL` is the recommended Alchemy setting. For compatibility,
-the older `ALCHEMY_BASE_API_KEY` variable accepts either a raw API key or the
-complete Base Mainnet RPC URL.
+`ALCHEMY_BASE_RPC_URL` is the recommended Alchemy setting. The previous
+`ALCHEMY_BASE_API_URL` name remains fully supported. For compatibility,
+`ALCHEMY_BASE_API_KEY` also accepts either a raw API key or the complete Base
+Mainnet RPC URL.
 
 API abuse protection uses the existing
 Cloudflare proxy at the edge and a dependency-free per-instance fallback in the

@@ -24,6 +24,18 @@ describe("Alchemy Base configuration", () => {
     );
   });
 
+  it("keeps supporting the previous API URL variable", () => {
+    expect(
+      getAlchemyBaseConfig({
+        ALCHEMY_BASE_API_URL:
+          "https://base-mainnet.g.alchemy.com/v2/example-key",
+      })
+    ).toEqual({
+      apiKey: "example-key",
+      rpcUrl: "https://base-mainnet.g.alchemy.com/v2/example-key",
+    });
+  });
+
   it("accepts a full RPC URL in the legacy variable", () => {
     expect(
       getAlchemyBaseConfig({
