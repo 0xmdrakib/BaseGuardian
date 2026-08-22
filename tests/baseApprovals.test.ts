@@ -1,0 +1,276 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  encodeFunctionData,
+  encodeFunctionResult,
+  maxUint256,
+  pad,
+  parseAbi,
+  toHex,
+  type Address,
+  type Hex,
+} from "viem";
+import {
+  APPROVAL_FOR_ALL_TOPIC,
+  APPROVAL_TOPIC,
+  PERMIT2_ADDRESS,
+  decodeApprovalLog,
+  fetchApprovalLogsAdaptive,
+  reduceApprovalCandidates,
+  verifyApprovalCandidates,
+  type ApprovalCandidate,
+} from "../lib/baseApprovals";
+
+const owner = "0x1111111111111111111111111111111111111111" as Address;
+const delegate = "0x2222222222222222222222222222222222222222" as Address;
+const token = "0x3333333333333333333333333333333333333333" as Address;
+const txHash = `0x${"ab".repeat(32)}` as Hex;
+
+function topic(address: Address) {
+  return pad(address, { size: 32 });
+}
+
+function log(overrides: Record<string, unknown> = {}) {
+  return {
+    address: token,
+    blockNumber: toHex(10),
+    data: toHex(25n, { size: 32 }),
+    logIndex: toHex(1),
+    removed: false,
+    topics: [APPROVAL_TOPIC, topic(owner), topic(delegate)],
+    transactionHash: txHash,
+    ...overrides,
+  } as any;
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("approval log decoding", () => {
+  it("decodes standard ERC-20, ERC-721, and operator approvals", () => {
+    const erc20 = decodeApprovalLog(log());
+    const erc721 = decodeApprovalLog(
+      log({
+        data: "0x",
+        topics: [
+          APPROVAL_TOPIC,
+          topic(owner),
+          topic(delegate),
+          toHex(42n, { size: 32 }),
+        ],
+      })
+    );
+    const operator = decodeApprovalLog(
+      log({
+        data: toHex(1n, { size: 32 }),
+        topics: [APPROVAL_FOR_ALL_TOPIC, topic(owner), topic(delegate)],
+      })
+    );
+
+    expect(erc20).toMatchObject({ kind: "erc20", eventValue: 25n });
+    expect(erc721).toMatchObject({ kind: "erc721-token", tokenId: 42n });
+    expect(operator).toMatchObject({ kind: "nft-operator", eventValue: true });
+  });
+
+  it("keeps only the latest active state for a permission", () => {
+    const active = log({ blockNumber: toHex(10), data: toHex(25n, { size: 32 }) });
+    const revoked = log({ blockNumber: toHex(11), data: toHex(0n, { size: 32 }) });
+    expect(reduceApprovalCandidates([active, revoked])).toEqual([]);
+    expect(reduceApprovalCandidates([revoked, active])).toEqual([]);
+  });
+});
+
+describe("adaptive approval history", () => {
+  it("splits a range when the provider response reaches the log cap", async () => {
+    let calls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      calls += 1;
+      const body = JSON.parse(String(init?.body));
+      const filter = body.params[0];
+      const from = Number(BigInt(filter.fromBlock));
+      const result =
+        calls === 1
+          ? Array.from({ length: 10_000 }, () => log())
+          : [
+              log({
+                blockNumber: toHex(from),
+                logIndex: toHex(from),
+                transactionHash: `0x${from.toString(16).padStart(64, "0")}`,
+              }),
+            ];
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }));
+    });
+
+    const result = await fetchApprovalLogsAdaptive(
+      "https://example.invalid",
+      owner,
+      100,
+      { deadlineMs: 5_000, maxLogRequests: 10, requestTimeoutMs: 1_000 }
+    );
+
+    expect(result.complete).toBe(true);
+    expect(result.requests).toBe(3);
+    expect(result.logs).toHaveLength(2);
+  });
+
+  it("returns partial coverage when its request budget is exhausted", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: -32000, message: "range too large" },
+        })
+      )
+    );
+
+    const result = await fetchApprovalLogsAdaptive(
+      "https://example.invalid",
+      owner,
+      100_000,
+      { deadlineMs: 5_000, maxLogRequests: 1, requestTimeoutMs: 1_000 }
+    );
+    expect(result.complete).toBe(false);
+    expect(result.requests).toBe(1);
+  });
+});
+
+describe("current approval verification", () => {
+  const abi = parseAbi([
+    "function allowance(address owner, address spender) view returns (uint256)",
+    "function name() view returns (string)",
+    "function symbol() view returns (string)",
+    "function decimals() view returns (uint8)",
+  ]);
+  const selectors = {
+    allowance: encodeFunctionData({
+      abi,
+      functionName: "allowance",
+      args: [owner, PERMIT2_ADDRESS],
+    }).slice(0, 10),
+    name: encodeFunctionData({ abi, functionName: "name" }),
+    symbol: encodeFunctionData({ abi, functionName: "symbol" }),
+    decimals: encodeFunctionData({ abi, functionName: "decimals" }),
+  };
+
+  function candidate(): ApprovalCandidate {
+    return {
+      id: `erc20:${token.toLowerCase()}:${PERMIT2_ADDRESS.toLowerCase()}`,
+      kind: "erc20",
+      tokenAddress: token,
+      delegateAddress: PERMIT2_ADDRESS,
+      tokenId: null,
+      eventValue: maxUint256,
+      blockNumber: 10,
+      logIndex: 1,
+      transactionHash: txHash,
+    };
+  }
+
+  function mockBatchAllowance(value: bigint | null) {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const requests = JSON.parse(String(init?.body)) as Array<{
+        id: number;
+        method: string;
+        params: any[];
+      }>;
+      const responses = requests.flatMap((request) => {
+        if (request.method === "eth_getCode") {
+          return [{ jsonrpc: "2.0", id: request.id, result: "0x1234" }];
+        }
+        const data = request.params[0].data as string;
+        if (data.startsWith(selectors.allowance)) {
+          return value === null
+            ? []
+            : [
+                {
+                  jsonrpc: "2.0",
+                  id: request.id,
+                  result: encodeFunctionResult({
+                    abi,
+                    functionName: "allowance",
+                    result: value,
+                  }),
+                },
+              ];
+        }
+        if (data === selectors.name) {
+          return [
+            {
+              jsonrpc: "2.0",
+              id: request.id,
+              result: encodeFunctionResult({
+                abi,
+                functionName: "name",
+                result: "USD Coin",
+              }),
+            },
+          ];
+        }
+        if (data === selectors.symbol) {
+          return [
+            {
+              jsonrpc: "2.0",
+              id: request.id,
+              result: encodeFunctionResult({
+                abi,
+                functionName: "symbol",
+                result: "USDC",
+              }),
+            },
+          ];
+        }
+        return [
+          {
+            jsonrpc: "2.0",
+            id: request.id,
+            result: encodeFunctionResult({
+              abi,
+              functionName: "decimals",
+              result: 6,
+            }),
+          },
+        ];
+      });
+      return new Response(JSON.stringify(responses));
+    });
+  }
+
+  it("marks an active unlimited Permit2 delegation", async () => {
+    mockBatchAllowance(maxUint256);
+    const result = await verifyApprovalCandidates(
+      "https://example.invalid",
+      owner,
+      100,
+      [candidate()]
+    );
+    expect(result[0]).toMatchObject({
+      verification: "verified",
+      exposure: "high",
+      permit2: true,
+      value: { unlimited: true },
+      token: { name: "USD Coin", symbol: "USDC", decimals: 6 },
+    });
+  });
+
+  it("filters a currently revoked allowance", async () => {
+    mockBatchAllowance(0n);
+    await expect(
+      verifyApprovalCandidates("https://example.invalid", owner, 100, [candidate()])
+    ).resolves.toEqual([]);
+  });
+
+  it("keeps an unverified candidate without calling it safe", async () => {
+    mockBatchAllowance(null);
+    const result = await verifyApprovalCandidates(
+      "https://example.invalid",
+      owner,
+      100,
+      [candidate()]
+    );
+    expect(result[0]).toMatchObject({
+      verification: "unverified",
+      exposure: "unknown",
+    });
+  });
+});

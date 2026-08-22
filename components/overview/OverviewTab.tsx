@@ -69,8 +69,8 @@ export function OverviewTab() {
   const currentInput = walletAddress.trim().toLowerCase();
   const visibleWalletSummary = analysisFor === currentInput ? walletSummary : null;
   const visibleWalletError = analysisFor === currentInput ? walletError : null;
-  const walletHealth = visibleWalletSummary
-    ? computeWalletHealth(visibleWalletSummary.summary)
+  const activityScore = visibleWalletSummary
+    ? computeActivityScore(visibleWalletSummary.summary)
     : null;
 
   const onchainSnapshot = visibleWalletSummary
@@ -82,7 +82,7 @@ export function OverviewTab() {
       {/* Wallet overview (Base) */}
       <Card
         title="Wallet overview (Base)"
-        description="Paste a Base address to get estimate wallet health and activity score."
+        description="Paste a Base address to summarize its activity and usage."
       >
         <div className="space-y-3 text-[11px]">
           <div className="flex gap-2">
@@ -145,18 +145,18 @@ export function OverviewTab() {
         </div>
       </Card>
 
-      {/* Wallet health – only after analysis */}
-      {walletHealth && (
+      {/* Activity score – only after analysis */}
+      {activityScore && (
         <Card
-          title="Wallet health"
-          description="Very rough score based on recent activity on Base. Does not yet read approvals or simulate risk."
-          footer="Scores are heuristics, not financial advice. Always double-check contracts and approvals."
+          title="Activity score"
+          description="A rough activity indicator based on Base transaction history, consistency, and gas usage."
+          footer="This measures activity patterns, not wallet security or financial safety."
         >
           <div className="flex items-center justify-between">
             <div>
-              <ScoreBadge label="Health score" score={walletHealth.score} />
+              <ScoreBadge label="Activity score" score={activityScore.score} />
               <ul className="mt-2 space-y-1 text-[11px] text-white/60">
-                {walletHealth.reasons.map((r, i) => (
+                {activityScore.reasons.map((r, i) => (
                   <li key={i}>• {r}</li>
                 ))}
               </ul>
@@ -212,7 +212,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function computeWalletHealth(summary: WalletSummary["summary"]) {
+function computeActivityScore(summary: WalletSummary["summary"]) {
   let score = 80;
   const reasons: string[] = [];
 

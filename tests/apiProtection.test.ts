@@ -49,6 +49,16 @@ describe("API protection", () => {
     expect(protectBaseApi(request(), "wallet")).toBeNull();
   });
 
+  it("limits expensive approval scans to six requests per minute", () => {
+    for (let index = 0; index < 6; index += 1) {
+      expect(protectBaseApi(request(), "approvals")).toBeNull();
+    }
+
+    const response = protectBaseApi(request(), "approvals");
+    expect(response?.status).toBe(429);
+    expect(response?.headers.get("RateLimit-Limit")).toBe("6");
+  });
+
   it("applies the aggregate minute quota across endpoints", () => {
     for (let index = 0; index < 30; index += 1) {
       const category = index % 2 === 0 ? "token-info" : "nft";

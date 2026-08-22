@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
-export type BaseApiCategory = "wallet" | "tokens" | "token-info" | "nft";
+export type BaseApiCategory =
+  | "wallet"
+  | "tokens"
+  | "token-info"
+  | "nft"
+  | "approvals";
 
 type WindowLimit = { id: string; max: number; windowMs: number };
 type Counter = { count: number; resetAt: number; lastSeenAt: number };
@@ -19,6 +24,7 @@ const CATEGORY_LIMITS: Record<BaseApiCategory, WindowLimit> = {
   tokens: { id: "tokens-minute", max: 10, windowMs: MINUTE },
   "token-info": { id: "token-info-minute", max: 20, windowMs: MINUTE },
   nft: { id: "nft-minute", max: 15, windowMs: MINUTE },
+  approvals: { id: "approvals-minute", max: 6, windowMs: MINUTE },
 };
 
 // Cloudflare provides the shared edge limit. Vercel instances do not share
