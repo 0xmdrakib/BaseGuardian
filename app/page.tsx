@@ -1,8 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
-import { sdk } from "@farcaster/miniapp-sdk";
+import { useState } from "react";
 import { OverviewTab } from "@/components/overview/OverviewTab";
 import { AssetsTab } from "@/components/assets/AssetsTab";
 import { SecurityTab } from "@/components/security/SecurityTab";
@@ -14,10 +13,6 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const wallet = useWallet();
 
-  useEffect(() => {
-    // Helps Warpcast/Farcaster webviews know the app is ready.
-    sdk.actions.ready().catch(() => {});
-  }, []);
   return (
     <main className="min-h-screen text-neutral-100">
       <div className="mx-auto flex max-w-lg flex-col gap-4 px-4 py-5 pb-[calc(env(safe-area-inset-bottom,0px)+16px)]">

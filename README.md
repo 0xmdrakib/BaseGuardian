@@ -1,6 +1,6 @@
 # Base Guardian
 
-Base Guardian is a Base wallet health and security mini app for checking wallet activity, token risk hints, NFT collection signals, and approval cleanup links.
+Base Guardian is a Base wallet health and security app for checking wallet activity, token risk hints, NFT collection signals, and approval cleanup links.
 
 **Live app:** https://baseguardian.rakibhq.xyz
 
@@ -14,7 +14,7 @@ Base Guardian is built for three core flows:
 - **Asset scanning:** Check Base ERC-20 token market signals and Base NFT collection metadata before interacting with a contract.
 - **Security helper:** Generate a direct revoke.cash link for a Base wallet so users can review and clean up risky token or NFT approvals.
 
-The app is designed as both a regular web app and a Farcaster/Base mini app. It focuses on quick, readable onchain summaries rather than financial recommendations. All scores and labels are heuristic hints only.
+The app focuses on quick, readable onchain summaries rather than financial recommendations. All scores and labels are heuristic hints only.
 
 ## Features
 
@@ -33,7 +33,6 @@ The app is designed as both a regular web app and a Farcaster/Base mini app. It 
 - ERC-8021 Builder Code attribution, automatically applied to future Wagmi transactions
 - Connected-wallet address autofill with independent manual overrides in wallet checks
 - Cloudflare edge protection with a dependency-free per-instance API rate-limit fallback
-- Farcaster/Base mini app metadata with app verification, splash assets, and embed image
 - Mobile-first dark UI built with reusable cards, tabs, badges, and Tailwind utility classes
 
 ## Supported network
@@ -77,7 +76,6 @@ The app is designed as both a regular web app and a Farcaster/Base mini app. It 
 - React 19
 - TypeScript
 - Tailwind CSS
-- Farcaster Mini App SDK
 - Wagmi, Viem, and WalletConnect
 - Cloudflare WAF and rate limiting
 - ethers

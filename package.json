@@ -14,7 +14,6 @@
     "check": "eslint . && next build"
   },
   "dependencies": {
-    "@farcaster/miniapp-sdk": "^0.3.0",
     "@tanstack/react-query": "^5.101.4",
     "@walletconnect/ethereum-provider": "^2.23.10",
     "ethers": "^6.16.0",
