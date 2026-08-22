@@ -24,6 +24,7 @@ Cloudflare Free currently provides one rate-limiting rule. Create it from
 - Requests: `6`
 - Period: `10 seconds`
 - Characteristics: `IP`
+- Also apply rate limiting to cached assets: `Off`
 - Action: `Block`
 - Mitigation timeout: `10 seconds`
 - Deploy the rule
