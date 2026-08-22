@@ -86,6 +86,7 @@ type ScanOptions = {
   historyUrl?: string;
   deadlineMs?: number;
   maxLogRequests?: number;
+  maxTransferPages?: number;
   requestTimeoutMs?: number;
 };
 
@@ -97,6 +98,8 @@ const MIN_SPLIT_SPAN = 2_000;
 const MAX_VERIFIED_CANDIDATES = 250;
 const HISTORY_PAGE_SIZE = 50;
 const DEFAULT_MAX_HISTORY_PAGES = 200;
+const DEFAULT_MAX_TRANSFER_PAGES = 100;
+const MAX_TRANSFER_RECEIPTS = 5_000;
 
 type HistoryLog = {
   contractAddress?: string;
@@ -116,6 +119,20 @@ type HistoryResponse = {
   after?: string | null;
   pageKey?: string | null;
   transactions?: HistoryTransaction[];
+};
+
+type AssetTransfer = {
+  blockNum?: string;
+  hash?: string;
+};
+
+type AssetTransferPage = {
+  pageKey?: string;
+  transfers?: AssetTransfer[];
+};
+
+type RpcReceipt = {
+  logs?: RpcLog[];
 };
 
 function toNumber(value: Hex) {
@@ -260,6 +277,114 @@ export async function fetchApprovalLogsFromAlchemyHistory(
     unique.set(`${log.transactionHash.toLowerCase()}:${log.logIndex}`, log);
   }
   return { complete, logs: [...unique.values()], pages };
+}
+
+/**
+ * Alchemy's Transfers index includes zero-value external contract calls when
+ * requested explicitly. Fetching those transaction receipts finds ordinary
+ * approve/setApprovalForAll calls without a full-chain eth_getLogs walk.
+ */
+export async function fetchApprovalLogsFromAlchemyTransfers(
+  rpcUrl: string,
+  owner: Address,
+  snapshotBlock: number,
+  options: Pick<
+    ScanOptions,
+    "deadlineMs" | "maxTransferPages" | "requestTimeoutMs"
+  > = {}
+) {
+  const deadlineAt = Date.now() + (options.deadlineMs ?? DEFAULT_DEADLINE_MS);
+  const timeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const maxPages = options.maxTransferPages ?? DEFAULT_MAX_TRANSFER_PAGES;
+  const transactionHashes = new Map<Hex, number>();
+  let pageKey: string | undefined;
+  let pages = 0;
+  let complete = false;
+
+  while (pages < maxPages && Date.now() < deadlineAt) {
+    const result = await rpcCall<AssetTransferPage>(
+      rpcUrl,
+      "alchemy_getAssetTransfers",
+      [
+        {
+          fromBlock: "0x0",
+          toBlock: toHexBlock(snapshotBlock),
+          fromAddress: owner,
+          category: ["external", "internal", "erc20", "erc721", "erc1155"],
+          excludeZeroValue: false,
+          order: "asc",
+          maxCount: "0x3e8",
+          ...(pageKey ? { pageKey } : {}),
+        },
+      ],
+      Math.min(timeoutMs, Math.max(1, deadlineAt - Date.now()))
+    );
+    if (!Array.isArray(result.transfers)) {
+      throw new Error("Alchemy transfers returned an invalid response.");
+    }
+    pages += 1;
+    for (const transfer of result.transfers) {
+      const blockNumber = historyNumber(transfer.blockNum);
+      if (
+        blockNumber == null ||
+        blockNumber > snapshotBlock ||
+        typeof transfer.hash !== "string" ||
+        !/^0x[0-9a-fA-F]{64}$/.test(transfer.hash)
+      ) {
+        continue;
+      }
+      transactionHashes.set(transfer.hash as Hex, blockNumber);
+    }
+    if (!result.pageKey) {
+      complete = true;
+      break;
+    }
+    if (result.pageKey === pageKey) break;
+    pageKey = result.pageKey;
+  }
+
+  const receiptOverflow = transactionHashes.size > MAX_TRANSFER_RECEIPTS;
+  const hashes = [...transactionHashes.keys()].slice(0, MAX_TRANSFER_RECEIPTS);
+  const requests = hashes.map((hash, index) => ({
+    id: index + 1,
+    method: "eth_getTransactionReceipt",
+    params: [hash],
+  }));
+  const responses = requests.length
+    ? await rpcBatch(rpcUrl, requests, timeoutMs)
+    : new Map<number, RpcResponse>();
+  const ownerTopic = pad(owner, { size: 32 }).toLowerCase();
+  const logs: RpcLog[] = [];
+  let missingReceipt = false;
+
+  for (let index = 0; index < hashes.length; index += 1) {
+    const response = responses.get(index + 1);
+    const receipt = response?.result as RpcReceipt | undefined;
+    if (!receipt || !Array.isArray(receipt.logs)) {
+      missingReceipt = true;
+      continue;
+    }
+    for (const log of receipt.logs) {
+      const topic0 = log.topics?.[0]?.toLowerCase();
+      if (
+        log.topics?.[1]?.toLowerCase() === ownerTopic &&
+        (topic0 === APPROVAL_TOPIC || topic0 === APPROVAL_FOR_ALL_TOPIC)
+      ) {
+        logs.push(log);
+      }
+    }
+  }
+
+  const unique = new Map<string, RpcLog>();
+  for (const log of logs) {
+    unique.set(`${log.transactionHash.toLowerCase()}:${log.logIndex}`, log);
+  }
+  return {
+    complete: complete && !receiptOverflow && !missingReceipt,
+    logs: [...unique.values()],
+    pages,
+    receipts: hashes.length,
+  };
 }
 
 function topicAddress(topic?: Hex): Address | null {
@@ -817,21 +942,41 @@ export async function getBaseApprovalScan(
     options.historyUrl ??
     (configured ? getAlchemyTransactionHistoryUrl(configured) : null);
   if (historyUrl) {
+    let indexedLogs: RpcLog[] = [];
     try {
-      discovery = await fetchApprovalLogsFromAlchemyHistory(
+      const indexed = await fetchApprovalLogsFromAlchemyHistory(
         historyUrl,
         owner,
         snapshotBlock,
         options
       );
+      indexedLogs = indexed.logs;
     } catch (error) {
       console.error("Alchemy address-history approval discovery failed.", error);
-      discovery = await fetchApprovalLogsAdaptive(
+    }
+    try {
+      const transfers = await fetchApprovalLogsFromAlchemyTransfers(
         rpcUrl,
         owner,
         snapshotBlock,
         options
       );
+      discovery = {
+        complete: transfers.complete,
+        logs: [...indexedLogs, ...transfers.logs],
+      };
+    } catch (error) {
+      console.error("Alchemy transfer-receipt approval discovery failed.", error);
+      const fallback = await fetchApprovalLogsAdaptive(
+        rpcUrl,
+        owner,
+        snapshotBlock,
+        options
+      );
+      discovery = {
+        complete: fallback.complete,
+        logs: [...indexedLogs, ...fallback.logs],
+      };
     }
   } else {
     discovery = await fetchApprovalLogsAdaptive(

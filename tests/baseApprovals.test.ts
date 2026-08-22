@@ -15,6 +15,7 @@ import {
   PERMIT2_ADDRESS,
   decodeApprovalLog,
   fetchApprovalLogsFromAlchemyHistory,
+  fetchApprovalLogsFromAlchemyTransfers,
   fetchApprovalLogsAdaptive,
   reduceApprovalCandidates,
   verifyApprovalCandidates,
@@ -82,6 +83,52 @@ describe("approval log decoding", () => {
 });
 
 describe("adaptive approval history", () => {
+  it("discovers zero-value approval calls through transfers and receipts", async () => {
+    let calls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      calls += 1;
+      const body = JSON.parse(String(init?.body));
+      if (calls === 1) {
+        expect(body.method).toBe("alchemy_getAssetTransfers");
+        expect(body.params[0]).toMatchObject({
+          fromAddress: owner,
+          excludeZeroValue: false,
+        });
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: {
+              transfers: [{ hash: txHash, blockNum: "0xa" }],
+            },
+          })
+        );
+      }
+
+      expect(Array.isArray(body)).toBe(true);
+      expect(body[0].method).toBe("eth_getTransactionReceipt");
+      return new Response(
+        JSON.stringify([
+          {
+            jsonrpc: "2.0",
+            id: body[0].id,
+            result: { logs: [log()] },
+          },
+        ])
+      );
+    });
+
+    const result = await fetchApprovalLogsFromAlchemyTransfers(
+      "https://example.invalid",
+      owner,
+      100,
+      { deadlineMs: 5_000, requestTimeoutMs: 1_000 }
+    );
+
+    expect(result).toMatchObject({ complete: true, pages: 1, receipts: 1 });
+    expect(result.logs).toHaveLength(1);
+  });
+
   it("paginates Alchemy wallet history and extracts only owner approval logs", async () => {
     let calls = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
