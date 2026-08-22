@@ -100,6 +100,9 @@ const HISTORY_PAGE_SIZE = 50;
 const DEFAULT_MAX_HISTORY_PAGES = 200;
 const DEFAULT_MAX_TRANSFER_PAGES = 100;
 const MAX_TRANSFER_RECEIPTS = 5_000;
+const RPC_BATCH_SIZE = 20;
+const RPC_BATCH_RETRIES = 3;
+const RPC_BATCH_CONCURRENCY = 2;
 
 type HistoryLog = {
   contractAddress?: string;
@@ -509,9 +512,9 @@ async function rpcBatch(
 ) {
   const output = new Map<number, RpcResponse>();
   const chunks: RpcRequest[][] = [];
-  for (let offset = 0; offset < requests.length; offset += 50) {
+  for (let offset = 0; offset < requests.length; offset += RPC_BATCH_SIZE) {
     chunks.push(
-      requests.slice(offset, offset + 50).map((request) => ({
+      requests.slice(offset, offset + RPC_BATCH_SIZE).map((request) => ({
         ...request,
         jsonrpc: "2.0" as const,
       }))
@@ -521,24 +524,52 @@ async function rpcBatch(
   async function worker() {
     while (nextChunk < chunks.length) {
       const chunk = chunks[nextChunk++];
-      try {
-        const response = await fetch(rpcUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(chunk),
-          cache: "no-store",
-          signal: AbortSignal.timeout(timeoutMs),
-        });
-        if (!response.ok) continue;
-        const bodies = (await response.json()) as RpcResponse[];
-        for (const body of bodies) output.set(body.id, body);
-      } catch {
-        // Missing batch entries are handled as unverified candidates.
+      let pending = chunk;
+      for (let attempt = 0; attempt < RPC_BATCH_RETRIES && pending.length; attempt += 1) {
+        try {
+          const response = await fetch(rpcUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(pending),
+            cache: "no-store",
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const bodies = (await response.json()) as RpcResponse[];
+          const received = new Set<number>();
+          for (const body of bodies) {
+            received.add(body.id);
+            const message = body.error?.message?.toLowerCase() ?? "";
+            const retryable =
+              body.error &&
+              (body.error.code === -32005 ||
+                message.includes("rate") ||
+                message.includes("limit") ||
+                message.includes("timeout") ||
+                message.includes("capacity"));
+            if (!retryable) output.set(body.id, body);
+          }
+          pending = pending.filter(
+            (request) =>
+              !output.has(request.id) &&
+              (!received.has(request.id) || !output.has(request.id))
+          );
+        } catch {
+          // Retry the whole unresolved subset below.
+        }
+        if (pending.length && attempt + 1 < RPC_BATCH_RETRIES) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, 150 * 2 ** attempt)
+          );
+        }
       }
     }
   }
   await Promise.all(
-    Array.from({ length: Math.min(4, chunks.length) }, () => worker())
+    Array.from(
+      { length: Math.min(RPC_BATCH_CONCURRENCY, chunks.length) },
+      () => worker()
+    )
   );
   return output;
 }
