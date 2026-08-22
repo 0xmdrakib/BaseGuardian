@@ -85,36 +85,6 @@ The app is designed as both a regular web app and a Farcaster/Base mini app. It 
 - DexScreener token API
 - revoke.cash approval review links
 
-## Environment setup
-
-Copy `.env.example` to `.env.local` and configure these values:
-
-```bash
-ALCHEMY_BASE_RPC_URL=https://base-mainnet.g.alchemy.com/v2/your_alchemy_api_key
-NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_reown_project_id
-NEXT_PUBLIC_BASE_BUILDER_CODE=your_base_dev_builder_code
-```
-
-The WalletConnect Project ID is required. Get the public Builder Code from
-**base.dev > Settings > Builder Code**. When it is configured, the Wagmi client
-automatically adds its ERC-8021 attribution suffix to future transactions; no
-transaction UI is enabled by this setting alone.
-
-`ALCHEMY_BASE_RPC_URL` must contain the complete Base Mainnet RPC URL.
-
-API abuse protection uses the existing
-Cloudflare proxy at the edge and a dependency-free per-instance fallback in the
-application. See [`docs/CLOUDFLARE.md`](./docs/CLOUDFLARE.md) for the dashboard
-settings.
-
-Run the verification suite with:
-
-```bash
-npm test
-npm run lint
-npm run build
-```
-
 ---
 
 ## License
