@@ -96,6 +96,12 @@ describe("private revoke verification payload", () => {
     expect(
       parseRevokeVerificationRequest({
         ...request(),
+        transactionHashes: [hash, `0x${hash.slice(2).toUpperCase()}`],
+      })
+    ).toMatchObject({ ok: false });
+    expect(
+      parseRevokeVerificationRequest({
+        ...request(),
         approvals: [
           {
             id: `erc721-token:${token}:-1`,
@@ -142,5 +148,109 @@ describe("private revoke verification payload", () => {
     });
     expect(fetchFn).toHaveBeenCalledTimes(2);
     expect(fetchFn.mock.calls[0][0]).toBe("/api/base/revoke-status");
+  });
+
+  it("retries a transient unverified state instead of surfacing a false failure", async () => {
+    vi.useFakeTimers();
+    const payload = request();
+    const unverified = Response.json({
+      status: "confirmed",
+      transactionHashes: [hash],
+      blockNumber: 123,
+      clearedIds: [],
+      approvals: [{ id: payload.approvals[0].id, state: "unverified" }],
+    });
+    const cleared = Response.json({
+      status: "confirmed",
+      transactionHashes: [hash],
+      blockNumber: 123,
+      clearedIds: [payload.approvals[0].id],
+      approvals: [{ id: payload.approvals[0].id, state: "cleared" }],
+    });
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(unverified)
+      .mockResolvedValueOnce(cleared);
+
+    const pending = waitForPrivateRevokeVerification(payload, {
+      fetchFn,
+      timeoutMs: 10_000,
+    });
+    await vi.advanceTimersByTimeAsync(1_500);
+
+    await expect(pending).resolves.toMatchObject({
+      status: "confirmed",
+      clearedIds: [payload.approvals[0].id],
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds repeated unverified reads before handing control back to the UI", async () => {
+    vi.useFakeTimers();
+    const payload = request();
+    const fetchFn = vi.fn<typeof fetch>().mockImplementation(async () =>
+      Response.json({
+        status: "confirmed",
+        transactionHashes: [hash],
+        blockNumber: 123,
+        clearedIds: [],
+        approvals: [{ id: payload.approvals[0].id, state: "unverified" }],
+      })
+    );
+
+    const pending = waitForPrivateRevokeVerification(payload, {
+      fetchFn,
+      timeoutMs: 30_000,
+    });
+    await vi.advanceTimersByTimeAsync(20_500);
+
+    await expect(pending).resolves.toMatchObject({
+      status: "confirmed",
+      approvals: [{ state: "unverified" }],
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(5);
+  });
+
+  it("bounds a non-JSON proxy error without throwing a parsing error", async () => {
+    vi.useFakeTimers();
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () =>
+        new Response("error code: 502\n", { status: 502 })
+      );
+
+    const pending = waitForPrivateRevokeVerification(request(), {
+      fetchFn,
+      timeoutMs: 30_000,
+    });
+    const rejection = expect(pending).rejects.toThrow(
+      "Could not verify the Base transaction."
+    );
+    await vi.advanceTimersByTimeAsync(22_000);
+
+    await rejection;
+    expect(fetchFn).toHaveBeenCalledTimes(5);
+  });
+
+  it("bounds retryable provider failures to avoid private RPC spam", async () => {
+    vi.useFakeTimers();
+    const fetchFn = vi.fn<typeof fetch>().mockImplementation(async () =>
+      Response.json(
+        { error: "The private Base provider is busy.", retryAfter: 3 },
+        { status: 503, headers: { "Retry-After": "3" } }
+      )
+    );
+
+    const pending = waitForPrivateRevokeVerification(request(), {
+      fetchFn,
+      timeoutMs: 30_000,
+    });
+    const rejection = expect(pending).rejects.toThrow(
+      "The private Base provider is busy."
+    );
+    await vi.advanceTimersByTimeAsync(22_000);
+
+    await rejection;
+    expect(fetchFn).toHaveBeenCalledTimes(5);
   });
 });

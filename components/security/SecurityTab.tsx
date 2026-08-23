@@ -164,7 +164,11 @@ export function SecurityTab() {
   const builderCodeDataSuffix = getBuilderCodeDataSuffix();
   const capabilities = useCapabilities({
     chainId: BASE_MAINNET_CHAIN_ID,
-    query: { enabled: wallet.isConnected && wallet.isBase },
+    query: {
+      enabled: wallet.isConnected && wallet.isBase,
+      retry: false,
+      staleTime: 60_000,
+    },
   });
 
   const currentInput = normalizeApprovalScanQuery(approvalAddress);
@@ -182,6 +186,12 @@ export function SecurityTab() {
   const atomicStatus = getAtomicCapabilityStatus(capabilities.data?.atomic);
   const batchSupported =
     atomicStatus === "supported" || atomicStatus === "ready";
+  const batchCapabilityChecking =
+    wallet.isConnected &&
+    wallet.isBase &&
+    !atomicStatus &&
+    (capabilities.isPending || capabilities.isFetching);
+  const batchCapabilityError = capabilities.isError && !atomicStatus;
   const actionableApprovals = useMemo(
     () =>
       visibleScan?.approvals.filter(
@@ -231,6 +241,7 @@ export function SecurityTab() {
       setSelected(new Set());
       setConfirmation(null);
       setNotice(null);
+      setPendingVerification(null);
     },
     [cancelActiveScan]
   );
@@ -255,7 +266,16 @@ export function SecurityTab() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelected(new Set());
     setConfirmation(null);
-  }, [canManageApprovals]);
+    if (
+      pendingVerification &&
+      (!connectedAddress ||
+        pendingVerification.request.owner.toLowerCase() !==
+          connectedAddress.toLowerCase())
+    ) {
+      setPendingVerification(null);
+      setNotice(null);
+    }
+  }, [canManageApprovals, connectedAddress, pendingVerification]);
 
   const runScan = useCallback(
     async (forceFresh = false) => {
@@ -346,8 +366,13 @@ export function SecurityTab() {
   const closeConfirmation = useCallback(() => setConfirmation(null), []);
 
   const removeApprovals = useCallback(
-    (ids: string[]) => {
-      if (!scanState.scan) return;
+    (ids: string[], expectedOwner: string) => {
+      if (
+        !scanState.scan ||
+        scanState.scan.address.toLowerCase() !== expectedOwner.toLowerCase()
+      ) {
+        return;
+      }
       const updated = removeApprovalItems(scanState.scan, ids);
       dispatchScan({
         type: "replace",
@@ -516,7 +541,7 @@ export function SecurityTab() {
             "The transaction confirmed, but the permission is still active or could not be verified. It was not removed."
           );
         }
-        removeApprovals(clearedIds);
+        removeApprovals(clearedIds, owner);
         verificationRetryAvailable = false;
         setPendingVerification(null);
         setNotice({
@@ -595,7 +620,7 @@ export function SecurityTab() {
           throw new Error("The batch revoke transaction reverted.");
         }
         const clearedIds = verification.clearedIds;
-        if (clearedIds.length) removeApprovals(clearedIds);
+        if (clearedIds.length) removeApprovals(clearedIds, owner);
         if (clearedIds.length !== submittedIds.length) {
           if (
             !verification.approvals.some(
@@ -656,7 +681,7 @@ export function SecurityTab() {
       }
 
       if (verification.clearedIds.length) {
-        removeApprovals(verification.clearedIds);
+        removeApprovals(verification.clearedIds, pending.request.owner);
       }
       if (verification.clearedIds.length !== pending.approvals.length) {
         retryAvailable = verification.approvals.some(
@@ -698,13 +723,29 @@ export function SecurityTab() {
     actionableApprovalIds,
     selected
   );
-  const busy = actionPending || loading || Boolean(pendingVerification);
+  const transactionBusy = actionPending || Boolean(pendingVerification);
+  const busy = transactionBusy || loading;
   const canRevokeSelected = canRevokeSelectedApprovals({
     batchSupported,
     busy,
     canManageApprovals,
     selectedCount: selectedApprovals.length,
   });
+  const selectedAllForBatch =
+    allActionableSelected && selectedApprovals.length > 1;
+  const batchCapabilityMessage = batchCapabilityChecking
+    ? "Checking one-click revoke-all support…"
+    : batchCapabilityError
+      ? "Could not check one-click revoke-all support. Individual Revoke buttons still work."
+      : atomicStatus === "ready"
+        ? `${wallet.connector?.name ?? "Your wallet"} may ask to enable atomic batching, then revoke all in one confirmation.`
+        : atomicStatus === "supported"
+          ? "One-click atomic revoke-all is available."
+          : selectedApprovals.length > 1
+            ? `${wallet.connector?.name ?? "This wallet"} reported no atomic revoke-all support. Use each row’s Revoke button.`
+            : selectedApprovals.length === 1
+              ? "Single revoke ready."
+              : "Select one or more permissions.";
 
   return (
     <div className="flex flex-col gap-3">
@@ -728,12 +769,12 @@ export function SecurityTab() {
                 clearForInputChange(nextValue);
                 setApprovalAddress(nextValue);
               }}
-              disabled={actionPending || Boolean(pendingVerification)}
+              disabled={actionPending}
               onKeyDown={(event) => {
                 if (
                   event.key === "Enter" &&
                   !loading &&
-                  !pendingVerification
+                  !actionPending
                 ) {
                   void runScan(Boolean(visibleScan));
                 }
@@ -742,7 +783,7 @@ export function SecurityTab() {
             <button
               type="button"
               onClick={() => void runScan(Boolean(visibleScan))}
-              disabled={loading || actionPending || Boolean(pendingVerification)}
+              disabled={loading || actionPending}
               className="btn btn-primary"
             >
               {loading
@@ -788,6 +829,55 @@ export function SecurityTab() {
           )}
         </div>
       </Card>
+
+      {pendingVerification && (
+        <div
+          className="subpanel flex flex-col gap-2 border-blue-400/20 bg-blue-400/5 text-[11px] sm:flex-row sm:items-center"
+          role="status"
+        >
+          <div className="min-w-0 flex-1">
+            <strong className="text-white/80">
+              {actionPending
+                ? "Checking the confirmed transaction…"
+                : "Transaction submitted; state verification needs another check."}
+            </strong>
+            <p className="mt-0.5 text-white/50">
+              No transaction will be sent again. The permission stays visible
+              until its current onchain state is confirmed.
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <a
+              className="btn btn-ghost text-[10px]"
+              href={pendingVerification.href}
+              target="_blank"
+              rel="noreferrer"
+            >
+              View transaction
+            </a>
+            <button
+              type="button"
+              className="btn btn-ghost text-[10px]"
+              onClick={() => void retryPendingVerification()}
+              disabled={actionPending}
+            >
+              Retry check
+            </button>
+            {!actionPending && (
+              <button
+                type="button"
+                className="btn btn-ghost text-[10px]"
+                onClick={() => {
+                  setPendingVerification(null);
+                  setNotice(null);
+                }}
+              >
+                Stop tracking
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {visibleScan && (
         <>
@@ -852,16 +942,26 @@ export function SecurityTab() {
                     className="btn btn-primary"
                     disabled={!canRevokeSelected}
                     onClick={() => openConfirmation(selectedApprovals)}
+                    aria-describedby="revoke-batch-capability"
                   >
-                    Revoke selected ({selectedApprovals.length})
+                    {`${selectedAllForBatch ? "Revoke all" : "Revoke selected"} (${selectedApprovals.length})`}
                   </button>
-                  <span className="text-[10px] text-white/45">
-                    {batchSupported
-                      ? "Atomic batch supported"
-                      : selectedApprovals.length > 1
-                        ? "Atomic batch unavailable — select one permission"
-                        : "Single revoke ready"}
+                  <span
+                    id="revoke-batch-capability"
+                    className="text-[10px] text-white/45"
+                    aria-live="polite"
+                  >
+                    {batchCapabilityMessage}
                   </span>
+                  {batchCapabilityError && (
+                    <button
+                      type="button"
+                      className="text-[10px] font-medium text-blue-300 hover:text-blue-200"
+                      onClick={() => void capabilities.refetch()}
+                    >
+                      Retry support check
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -909,12 +1009,6 @@ export function SecurityTab() {
           <ActionNoticeToast
             notice={notice}
             onDismiss={() => setNotice(null)}
-            onAction={
-              pendingVerification && notice.kind === "error"
-                ? () => void retryPendingVerification()
-                : undefined
-            }
-            actionLabel="Retry verification"
           />,
           document.body
         )}
@@ -935,14 +1029,10 @@ export function SecurityTab() {
 }
 
 function ActionNoticeToast({
-  actionLabel,
   notice,
-  onAction,
   onDismiss,
 }: {
-  actionLabel?: string;
   notice: ActionNotice;
-  onAction?: () => void;
   onDismiss: () => void;
 }) {
   return (
@@ -974,16 +1064,7 @@ function ActionNoticeToast({
             </a>
           )}
         </p>
-        {onAction && actionLabel && (
-          <button
-            type="button"
-            className="btn btn-ghost shrink-0 text-[10px]"
-            onClick={onAction}
-          >
-            {actionLabel}
-          </button>
-        )}
-        {notice.kind !== "pending" && !onAction && (
+        {notice.kind !== "pending" && (
           <button
             type="button"
             className="-my-1 shrink-0 rounded-lg px-2 py-1 text-white/55 hover:bg-white/10 hover:text-white"

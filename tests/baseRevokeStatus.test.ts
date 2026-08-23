@@ -82,7 +82,7 @@ describe("private Base revoke status", () => {
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
-  it("uses one fixed Multicall at the receipt block and distinguishes states", async () => {
+  it("uses one fixed Multicall at the confirmed receipt block and distinguishes states", async () => {
     const aggregateResult = encodeFunctionResult({
       abi: multicall3Abi,
       functionName: "aggregate3",
@@ -135,7 +135,7 @@ describe("private Base revoke status", () => {
     expect(callBody.params[1]).toBe("0x7b");
   });
 
-  it("matches out-of-order receipt batches by ID and verifies at the newest block", async () => {
+  it("matches out-of-order receipt batches by ID and reports the newest receipt block", async () => {
     const secondHash = `0x${"cd".repeat(32)}` as const;
     const aggregateResult = encodeFunctionResult({
       abi: multicall3Abi,
@@ -184,6 +184,58 @@ describe("private Base revoke status", () => {
     expect(callBody.params[1]).toBe("0x7c");
   });
 
+  it("accepts smart-account receipts whose outer sender differs from the logical owner", async () => {
+    const aggregateResult = encodeFunctionResult({
+      abi: multicall3Abi,
+      functionName: "aggregate3",
+      result: [
+        {
+          success: true,
+          returnData: encodeFunctionResult({
+            abi: erc20ApprovalAbi,
+            functionName: "allowance",
+            result: 0n,
+          }),
+        },
+        {
+          success: true,
+          returnData: encodeFunctionResult({
+            abi: nftOperatorApprovalAbi,
+            functionName: "isApprovedForAll",
+            result: false,
+          }),
+        },
+      ],
+    });
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json([
+          {
+            jsonrpc: "2.0",
+            id: 1,
+            result: {
+              ...receipt(),
+              from: "0x9999999999999999999999999999999999999999",
+            },
+          },
+        ])
+      )
+      .mockResolvedValueOnce(
+        Response.json({ jsonrpc: "2.0", id: 1, result: aggregateResult })
+      );
+
+    await expect(
+      getPrivateBaseRevokeStatus(request(), { rpcUrl: privateRpc, fetchFn })
+    ).resolves.toMatchObject({
+      status: "confirmed",
+      clearedIds: [
+        `erc20:${tokenA}:${delegate}`,
+        `nft-operator:${tokenB}:${delegate}`,
+      ],
+    });
+  });
+
   it("marks failed Multicall children unverified instead of cleared", async () => {
     const aggregateResult = encodeFunctionResult({
       abi: multicall3Abi,
@@ -212,6 +264,29 @@ describe("private Base revoke status", () => {
         { state: "unverified" },
       ],
     });
+  });
+
+  it("treats receipt-block propagation errors as retryable", async () => {
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json([{ jsonrpc: "2.0", id: 1, result: receipt() }])
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          jsonrpc: "2.0",
+          id: 1,
+          error: { code: -32000, message: "header not found" },
+        })
+      );
+
+    const error = await getPrivateBaseRevokeStatus(request(), {
+      rpcUrl: privateRpc,
+      fetchFn,
+    }).catch((cause) => cause);
+    expect(error).toBeInstanceOf(BaseRevokeProviderError);
+    expect(error).toMatchObject({ status: 503, retryAfter: 3 });
+    expect(String(error)).not.toContain("header not found");
   });
 
   it("sanitizes provider throttling without exposing the private URL", async () => {

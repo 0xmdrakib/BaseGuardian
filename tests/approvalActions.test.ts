@@ -144,6 +144,30 @@ describe("approval revoke calls", () => {
     ).toBe(true);
   });
 
+  it("treats an ERC-721 approval moved to a different delegate as cleared", () => {
+    const item = approval("erc721-token");
+    expect(
+      isRevokeStateCleared(
+        item,
+        encodeFunctionResult({
+          abi: erc721ApprovalAbi,
+          functionName: "getApproved",
+          result: "0x4444444444444444444444444444444444444444",
+        })
+      )
+    ).toBe(true);
+    expect(
+      isRevokeStateCleared(
+        item,
+        encodeFunctionResult({
+          abi: erc721ApprovalAbi,
+          functionName: "getApproved",
+          result: item.delegate.address,
+        })
+      )
+    ).toBe(false);
+  });
+
   it("builds one verification batch and keeps only cleared approvals", () => {
     const owner = "0x1111111111111111111111111111111111111111";
     const approvals = [

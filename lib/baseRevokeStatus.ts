@@ -1,8 +1,6 @@
 import {
   decodeFunctionResult,
   encodeFunctionData,
-  isAddress,
-  isAddressEqual,
   toHex,
   type Hex,
 } from "viem";
@@ -28,7 +26,6 @@ type RpcReceipt = {
   transactionHash: Hex;
   blockNumber: Hex;
   status: Hex;
-  from: `0x${string}`;
 };
 
 export class BaseRevokeProviderError extends Error {
@@ -97,7 +94,17 @@ async function rpcFetch(
 }
 
 function rpcResult(response: RpcResponse | undefined) {
-  if (!response || response.error || !("result" in response)) {
+  if (response?.error) {
+    // Every RPC method and calldata in this route is fixed server-side. A
+    // provider-level JSON-RPC error therefore represents a transient provider
+    // or block-propagation failure, not invalid user-supplied RPC input.
+    throw new BaseRevokeProviderError(
+      "The private Base provider could not verify the transaction yet.",
+      503,
+      3
+    );
+  }
+  if (!response || !("result" in response)) {
     throw new BaseRevokeProviderError(
       "The private Base provider could not verify the transaction.",
       502
@@ -120,9 +127,7 @@ function parseReceipt(value: unknown, expectedHash: Hex): RpcReceipt | null {
     receipt.transactionHash.toLowerCase() !== expectedHash.toLowerCase() ||
     typeof receipt.blockNumber !== "string" ||
     !/^0x[0-9a-f]+$/i.test(receipt.blockNumber) ||
-    (receipt.status !== "0x0" && receipt.status !== "0x1") ||
-    typeof receipt.from !== "string" ||
-    !isAddress(receipt.from)
+    (receipt.status !== "0x0" && receipt.status !== "0x1")
   ) {
     throw new BaseRevokeProviderError(
       "The private Base provider returned an invalid receipt.",
@@ -192,17 +197,6 @@ export async function getPrivateBaseRevokeStatus(
       transactionHashes: request.transactionHashes,
     };
   }
-  if (
-    confirmedReceipts.some(
-      (receipt) => !isAddressEqual(receipt.from, request.owner)
-    )
-  ) {
-    throw new BaseRevokeProviderError(
-      "The confirmed transaction sender does not match the connected wallet.",
-      502
-    );
-  }
-
   const blockNumber = confirmedReceipts.reduce((highest, receipt) => {
     const current = BigInt(receipt.blockNumber);
     return current > highest ? current : highest;
@@ -233,6 +227,9 @@ export async function getPrivateBaseRevokeStatus(
           data: callData,
           gas: toHex(5_000_000),
         },
+        // Read the post-transaction state at the confirmed receipt block. If a
+        // provider backend has not indexed that block yet, its retryable RPC
+        // error is handled by the bounded client backoff.
         toHex(blockNumber),
       ],
     },

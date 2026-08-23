@@ -38,8 +38,7 @@ export function canRevokeSelectedApprovals({
 
 export function getAtomicCapabilityStatus(atomic: unknown) {
   if (!atomic || typeof atomic !== "object") return undefined;
-  const capability = atomic as { status?: unknown; supported?: unknown };
-  const value = capability.status ?? capability.supported;
+  const value = (atomic as { status?: unknown }).status;
   return value === "supported" ||
     value === "ready" ||
     value === "unsupported"

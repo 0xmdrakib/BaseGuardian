@@ -76,11 +76,14 @@ describe("approval selection", () => {
     expect([...selected]).toEqual(["approval-b"]);
   });
 
-  it("accepts both standardized and Base Account atomic capability shapes", () => {
+  it("accepts the standardized EIP-5792 atomic capability status", () => {
     expect(getAtomicCapabilityStatus({ status: "ready" })).toBe("ready");
-    expect(getAtomicCapabilityStatus({ supported: "supported" })).toBe(
+    expect(getAtomicCapabilityStatus({ status: "supported" })).toBe(
       "supported"
     );
-    expect(getAtomicCapabilityStatus({ supported: "unknown" })).toBeUndefined();
+    expect(getAtomicCapabilityStatus({ status: "unsupported" })).toBe(
+      "unsupported"
+    );
+    expect(getAtomicCapabilityStatus({ supported: true })).toBeUndefined();
   });
 });

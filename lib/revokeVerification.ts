@@ -99,7 +99,11 @@ export function parseRevokeVerificationRequest(
     body.transactionHashes.some(
       (hash) => typeof hash !== "string" || !isHash(hash)
     ) ||
-    new Set(body.transactionHashes).size !== body.transactionHashes.length
+    new Set(
+      body.transactionHashes.map((hash) =>
+        typeof hash === "string" ? hash.toLowerCase() : hash
+      )
+    ).size !== body.transactionHashes.length
   ) {
     return { ok: false, error: "Transaction hashes must be unique and valid." };
   }
@@ -300,6 +304,9 @@ export async function waitForPrivateRevokeVerification(
   const signal = options.signal
     ? AbortSignal.any([options.signal, timeout])
     : timeout;
+  const verificationBackoffMs = [1_500, 3_000, 6_000, 10_000] as const;
+  let unverifiedRetry = 0;
+  let providerRetry = 0;
 
   while (!signal.aborted) {
     let response: Response;
@@ -313,7 +320,16 @@ export async function waitForPrivateRevokeVerification(
         credentials: "same-origin",
         signal,
       });
-      json = await response.json();
+      const text = await response.text();
+      if (!text) {
+        json = null;
+      } else {
+        try {
+          json = JSON.parse(text) as unknown;
+        } catch {
+          json = null;
+        }
+      }
     } catch (error) {
       if (signal.aborted) throw signal.reason;
       throw error;
@@ -322,9 +338,21 @@ export async function waitForPrivateRevokeVerification(
     const result = parseVerificationResult(json, request);
     if (
       response.ok &&
-      (result?.status === "confirmed" || result?.status === "reverted")
+      result?.status === "reverted"
     ) {
       return result;
+    }
+    if (response.ok && result?.status === "confirmed") {
+      // A failed fixed-ABI child call can be caused by brief provider/indexing
+      // lag after the receipt appears. Keep polling instead of presenting a
+      // confirmed revoke as a permanent verification failure.
+      if (!result.approvals.some((approval) => approval.state === "unverified")) {
+        return result;
+      }
+      if (unverifiedRetry >= verificationBackoffMs.length) return result;
+      await wait(verificationBackoffMs[unverifiedRetry], signal);
+      unverifiedRetry += 1;
+      continue;
     }
 
     const errorMessage =
@@ -340,11 +368,25 @@ export async function waitForPrivateRevokeVerification(
         : Number.isFinite(retryAfterHeader) && retryAfterHeader >= 1
           ? retryAfterHeader
           : 0;
-    if (
-      (response.status === 202 || response.status === 429 || response.status === 503) &&
-      retryAfter > 0
-    ) {
+    if ((response.status === 202 || response.status === 429) && retryAfter > 0) {
       await wait(Math.min(retryAfter, 60) * 1_000, signal);
+      continue;
+    }
+    if (
+      (response.status === 502 ||
+        response.status === 503 ||
+        response.status === 504)
+    ) {
+      if (providerRetry >= verificationBackoffMs.length) {
+        throw new Error(errorMessage);
+      }
+      const providerRetryAfter = retryAfter > 0 ? retryAfter : 3;
+      const delayMs = Math.max(
+        Math.min(providerRetryAfter, 60) * 1_000,
+        verificationBackoffMs[providerRetry]
+      );
+      providerRetry += 1;
+      await wait(delayMs, signal);
       continue;
     }
     throw new Error(errorMessage);

@@ -149,7 +149,11 @@ export function decodeRevokeState(
         functionName: "getApproved",
         data: result,
       });
-      return isAddressEqual(approved, zeroAddress) ? "cleared" : "active";
+      // This row represents exposure to one specific delegate. Zero or a
+      // different current delegate both mean that exposure has been cleared.
+      return isAddressEqual(approved, approval.delegate.address)
+        ? "active"
+        : "cleared";
     }
     return (
       decodeFunctionResult({
