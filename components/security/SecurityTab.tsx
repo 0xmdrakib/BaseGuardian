@@ -94,6 +94,14 @@ function friendlyActionError(error: unknown) {
     : "The wallet request failed.";
 }
 
+function friendlyScanError(error: unknown) {
+  if (!(error instanceof Error)) return "Approval scan failed.";
+  if (error.name === "TimeoutError" || error.name === "AbortError") {
+    return "The scan took too long. Please wait a moment and try again.";
+  }
+  return error.message || "Approval scan failed.";
+}
+
 export function SecurityTab() {
   const wallet = useWallet();
   const {
@@ -171,11 +179,12 @@ export function SecurityTab() {
       setLoading(true);
       try {
         const response = await fetch(
-          `/api/base/approvals?address=${encodeURIComponent(trimmed)}${force ? "&fresh=1" : ""}`
+          `/api/base/approvals?address=${encodeURIComponent(trimmed)}${force ? "&fresh=1" : ""}`,
+          { signal: AbortSignal.timeout(58_000) }
         );
-        const body = (await response.json()) as BaseApprovalScan & {
-          error?: string;
-        };
+        const body = (await response.json().catch(() => ({
+          error: `Approval scan failed with HTTP ${response.status}.`,
+        }))) as BaseApprovalScan & { error?: string };
         if (!response.ok) throw new Error(body.error ?? "Approval scan failed.");
         setScan(body);
         writeCachedApprovalScan(
@@ -183,13 +192,12 @@ export function SecurityTab() {
           body
         );
       } catch (error) {
+        const message = friendlyScanError(error);
         if (!cached) setScan(null);
         setScanError(
           cached
-            ? "Could not refresh right now. Showing the most recent saved scan."
-            : error instanceof Error
-              ? error.message
-              : "Approval scan failed."
+            ? `${message} Showing the most recent saved scan.`
+            : message
         );
       } finally {
         setLoading(false);

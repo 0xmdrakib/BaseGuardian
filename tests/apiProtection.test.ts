@@ -6,9 +6,12 @@ import {
   resetApiProtectionForTests,
 } from "../lib/apiProtection";
 
-function request(ip = "203.0.113.10") {
+function request(
+  ip = "203.0.113.10",
+  extraHeaders: Record<string, string> = {}
+) {
   return new NextRequest("https://baseguardian.example/api/base/wallet", {
-    headers: { "x-vercel-forwarded-for": ip },
+    headers: { "x-vercel-forwarded-for": ip, ...extraHeaders },
   });
 }
 
@@ -38,6 +41,31 @@ describe("API protection", () => {
 
     expect(protectBaseApi(request("203.0.113.10"), "tokens")?.status).toBe(429);
     expect(protectBaseApi(request("203.0.113.11"), "tokens")).toBeNull();
+  });
+
+  it("uses the real Cloudflare client IP instead of a shared proxy IP", () => {
+    const proxyIp = "192.0.2.40";
+    for (let index = 0; index < 6; index += 1) {
+      expect(
+        protectBaseApi(
+          request(proxyIp, { "cf-connecting-ip": "203.0.113.20" }),
+          "approvals"
+        )
+      ).toBeNull();
+    }
+
+    expect(
+      protectBaseApi(
+        request(proxyIp, { "cf-connecting-ip": "203.0.113.20" }),
+        "approvals"
+      )?.status
+    ).toBe(429);
+    expect(
+      protectBaseApi(
+        request(proxyIp, { "cf-connecting-ip": "203.0.113.21" }),
+        "approvals"
+      )
+    ).toBeNull();
   });
 
   it("resets a window after it expires", () => {

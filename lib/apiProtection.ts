@@ -34,9 +34,9 @@ let lastCleanupAt = 0;
 
 function clientIp(request: NextRequest) {
   return (
+    request.headers.get("cf-connecting-ip")?.trim() ||
     request.headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("cf-connecting-ip")?.trim() ||
     "unknown"
   );
 }
