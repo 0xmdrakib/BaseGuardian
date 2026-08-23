@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { decodeFunctionData, encodeFunctionResult } from "viem";
 import {
+  clearedApprovalIdsFromVerificationBatch,
   createRevokeCall,
+  createRevokeVerificationBatch,
   createRevokeVerificationCall,
   erc20ApprovalAbi,
   erc721ApprovalAbi,
@@ -140,5 +142,42 @@ describe("approval revoke calls", () => {
         })
       )
     ).toBe(true);
+  });
+
+  it("builds one verification batch and keeps only cleared approvals", () => {
+    const owner = "0x1111111111111111111111111111111111111111";
+    const approvals = [
+      approval("erc20", { id: "cleared-token" }),
+      approval("nft-operator", { id: "active-operator" }),
+    ];
+    const calls = createRevokeVerificationBatch(approvals, owner);
+
+    expect(calls).toHaveLength(2);
+    expect(calls.every((call) => call.allowFailure)).toBe(true);
+    expect(calls.map((call) => call.target)).toEqual([
+      approvals[0].token.address,
+      approvals[1].token.address,
+    ]);
+
+    const clearedIds = clearedApprovalIdsFromVerificationBatch(approvals, [
+      {
+        success: true,
+        returnData: encodeFunctionResult({
+          abi: erc20ApprovalAbi,
+          functionName: "allowance",
+          result: 0n,
+        }),
+      },
+      {
+        success: true,
+        returnData: encodeFunctionResult({
+          abi: nftOperatorApprovalAbi,
+          functionName: "isApprovedForAll",
+          result: true,
+        }),
+      },
+    ]);
+
+    expect(clearedIds).toEqual(["cleared-token"]);
   });
 });

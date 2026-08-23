@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   useCapabilities,
   useConfig,
@@ -21,11 +22,13 @@ import { Card } from "@/components/shared/Card";
 import { useSmartWalletInput } from "@/components/wallet/useSmartWalletInput";
 import { useWallet } from "@/components/wallet/WalletContext";
 import {
+  BASE_MULTICALL3_ADDRESS,
+  clearedApprovalIdsFromVerificationBatch,
   createRevokeCall,
-  createRevokeVerificationCall,
+  createRevokeVerificationBatch,
   erc20ApprovalAbi,
   erc721ApprovalAbi,
-  isRevokeStateCleared,
+  multicall3Abi,
   nftOperatorApprovalAbi,
 } from "@/lib/approvalActions";
 import {
@@ -38,7 +41,15 @@ import {
   removeApprovalItems,
   serializeApprovalScanCache,
 } from "@/lib/approvalScanClient";
+import {
+  areAllApprovalIdsSelected,
+  canRevokeSelectedApprovals,
+  getAtomicCapabilityStatus,
+  pruneSelectedApprovalIds,
+  toggleAllApprovalIds,
+} from "@/lib/approvalSelection";
 import type { BaseApprovalItem, BaseApprovalScan } from "@/lib/approvalTypes";
+import { getBuilderCodeDataSuffix } from "@/lib/builderCode";
 
 type Confirmation = {
   approvals: BaseApprovalItem[];
@@ -126,6 +137,7 @@ export function SecurityTab() {
     initialApprovalScanRequestState
   );
   const requestSequenceRef = useRef(0);
+  const actionInFlightRef = useRef(false);
   const activeScanRef = useRef<{
     controller: AbortController;
     query: string;
@@ -139,6 +151,7 @@ export function SecurityTab() {
   const publicClient = usePublicClient({ chainId: base.id });
   const writeContract = useWriteContract();
   const sendCalls = useSendCalls();
+  const builderCodeDataSuffix = getBuilderCodeDataSuffix();
   const capabilities = useCapabilities({
     chainId: base.id,
     query: { enabled: wallet.isConnected && wallet.isBase },
@@ -155,13 +168,20 @@ export function SecurityTab() {
       connectedAddress &&
       visibleScan.address.toLowerCase() === connectedAddress.toLowerCase()
   );
-  const atomicStatus = capabilities.data?.atomic?.status;
+  const canManageApprovals = scannedWalletConnected && wallet.isBase;
+  const atomicStatus = getAtomicCapabilityStatus(capabilities.data?.atomic);
   const batchSupported =
     atomicStatus === "supported" || atomicStatus === "ready";
-  const selectedApprovals = useMemo(
+  const actionableApprovals = useMemo(
     () =>
-      visibleScan?.approvals.filter((approval) => selected.has(approval.id)) ?? [],
-    [selected, visibleScan]
+      visibleScan?.approvals.filter(
+        (approval) => approval.verification === "verified"
+      ) ?? [],
+    [visibleScan]
+  );
+  const selectedApprovals = useMemo(
+    () => actionableApprovals.filter((approval) => selected.has(approval.id)),
+    [actionableApprovals, selected]
   );
   const revokeUrl = visibleScan
     ? `https://revoke.cash/address/${visibleScan.address}?chain=base`
@@ -204,6 +224,14 @@ export function SecurityTab() {
     },
     []
   );
+
+  useEffect(() => {
+    if (canManageApprovals) return;
+    // External wallet account/network changes invalidate any pending selection.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelected(new Set());
+    setConfirmation(null);
+  }, [canManageApprovals]);
 
   const runScan = useCallback(
     async (forceFresh = false) => {
@@ -307,7 +335,7 @@ export function SecurityTab() {
         updated,
         true
       );
-      setSelected(new Set());
+      setSelected((current) => pruneSelectedApprovalIds(current, ids));
     },
     [scanState.query, scanState.scan]
   );
@@ -335,25 +363,48 @@ export function SecurityTab() {
     setNotice(null);
   };
 
-  const verifyRevokedApprovals = async (approvals: BaseApprovalItem[]) => {
-    if (!publicClient || !wallet.address) return [];
-    const checks = await Promise.allSettled(
-      approvals.map(async (approval) => {
-        const call = createRevokeVerificationCall(approval, wallet.address!);
-        const result = await publicClient.call({ to: call.to, data: call.data });
-        return isRevokeStateCleared(approval, result.data)
-          ? approval.id
-          : null;
-      })
-    );
-    return checks.flatMap((check) =>
-      check.status === "fulfilled" && check.value ? [check.value] : []
-    );
+  const verifyRevokedApprovals = async (
+    approvals: BaseApprovalItem[],
+    owner: `0x${string}`,
+    blockNumber?: bigint
+  ) => {
+    if (!publicClient) return [];
+    const results = await publicClient.readContract({
+      address: BASE_MULTICALL3_ADDRESS,
+      abi: multicall3Abi,
+      functionName: "aggregate3",
+      args: [createRevokeVerificationBatch(approvals, owner)],
+      ...(blockNumber !== undefined ? { blockNumber } : {}),
+    });
+    return clearedApprovalIdsFromVerificationBatch(approvals, results);
   };
 
   const confirmRevoke = async () => {
-    if (!confirmation || !wallet.address || !publicClient) return;
-    const calls = confirmation.approvals.map(createRevokeCall);
+    if (
+      actionInFlightRef.current ||
+      !confirmation ||
+      !wallet.address ||
+      !publicClient
+    ) {
+      return;
+    }
+    if (!scannedWalletConnected) {
+      setConfirmation(null);
+      setNotice({
+        kind: "error",
+        message: "The connected wallet no longer matches the scanned address.",
+      });
+      return;
+    }
+    if (!wallet.isBase) {
+      setConfirmation(null);
+      setNotice({ kind: "error", message: "Switch the wallet to Base first." });
+      return;
+    }
+    const pendingConfirmation = confirmation;
+    const owner = wallet.address;
+    const connector = wallet.connector;
+    const calls = pendingConfirmation.approvals.map(createRevokeCall);
     if (calls.length > 1 && !batchSupported) {
       setConfirmation(null);
       setNotice({
@@ -364,21 +415,16 @@ export function SecurityTab() {
       return;
     }
 
-    const submittedIds = confirmation.approvals.map((approval) => approval.id);
+    const submittedIds = pendingConfirmation.approvals.map(
+      (approval) => approval.id
+    );
+    actionInFlightRef.current = true;
     setActionPending(true);
-    setNotice({ kind: "pending", message: "Checking revoke call…" });
+    setConfirmation(null);
+    setNotice({ kind: "pending", message: "Opening your wallet…" });
     try {
-      for (const call of calls) {
-        await publicClient.call({
-          account: wallet.address,
-          to: call.to,
-          data: call.data,
-        });
-      }
-
-      setConfirmation(null);
       if (calls.length === 1) {
-        const approval = confirmation.approvals[0];
+        const approval = pendingConfirmation.approvals[0];
         setNotice({
           kind: "pending",
           message: "Confirm the revoke in your wallet…",
@@ -390,7 +436,11 @@ export function SecurityTab() {
                 abi: erc20ApprovalAbi,
                 functionName: "approve",
                 args: [approval.delegate.address, 0n],
+                account: owner,
                 chainId: base.id,
+                ...(builderCodeDataSuffix
+                  ? { dataSuffix: builderCodeDataSuffix }
+                  : {}),
               })
             : approval.kind === "erc721-token"
               ? await writeContract.writeContractAsync({
@@ -401,14 +451,22 @@ export function SecurityTab() {
                     "0x0000000000000000000000000000000000000000",
                     BigInt(approval.tokenId!),
                   ],
+                  account: owner,
                   chainId: base.id,
+                  ...(builderCodeDataSuffix
+                    ? { dataSuffix: builderCodeDataSuffix }
+                    : {}),
                 })
               : await writeContract.writeContractAsync({
                   address: approval.token.address,
                   abi: nftOperatorApprovalAbi,
                   functionName: "setApprovalForAll",
                   args: [approval.delegate.address, false],
+                  account: owner,
                   chainId: base.id,
+                  ...(builderCodeDataSuffix
+                    ? { dataSuffix: builderCodeDataSuffix }
+                    : {}),
                 });
         setNotice({
           kind: "pending",
@@ -425,7 +483,9 @@ export function SecurityTab() {
           href: `https://basescan.org/tx/${hash}`,
         });
         const clearedIds = await verifyRevokedApprovals(
-          confirmation.approvals
+          pendingConfirmation.approvals,
+          owner,
+          receipt.blockNumber
         );
         if (clearedIds.length !== submittedIds.length) {
           throw new Error(
@@ -445,10 +505,20 @@ export function SecurityTab() {
           message: "Confirm the atomic batch in your wallet…",
         });
         const result = await sendCalls.sendCallsAsync({
-          account: wallet.address,
+          account: owner,
           chainId: base.id,
           calls: calls.map((call) => ({ to: call.to, data: call.data })),
           forceAtomic: true,
+          ...(builderCodeDataSuffix
+            ? {
+                capabilities: {
+                  dataSuffix: {
+                    value: builderCodeDataSuffix,
+                    optional: true,
+                  },
+                },
+              }
+            : {}),
         });
         setNotice({
           kind: "pending",
@@ -456,7 +526,7 @@ export function SecurityTab() {
         });
         const status = await waitForCallsStatus(config, {
           id: result.id,
-          connector: wallet.connector,
+          connector,
           pollingInterval: 1_500,
           timeout: 120_000,
         });
@@ -470,7 +540,9 @@ export function SecurityTab() {
             : undefined,
         });
         const clearedIds = await verifyRevokedApprovals(
-          confirmation.approvals
+          pendingConfirmation.approvals,
+          owner,
+          status.receipts?.at(-1)?.blockNumber
         );
         if (clearedIds.length) removeApprovals(clearedIds);
         if (clearedIds.length !== submittedIds.length) {
@@ -491,15 +563,25 @@ export function SecurityTab() {
       setConfirmation(null);
       setNotice({ kind: "error", message: friendlyActionError(error) });
     } finally {
+      actionInFlightRef.current = false;
       setActionPending(false);
     }
   };
 
-  const actionableApprovals =
-    visibleScan?.approvals.filter(
-      (approval) => approval.verification === "verified"
-    ) ?? [];
+  const actionableApprovalIds = actionableApprovals.map(
+    (approval) => approval.id
+  );
+  const allActionableSelected = areAllApprovalIdsSelected(
+    actionableApprovalIds,
+    selected
+  );
   const busy = actionPending || loading;
+  const canRevokeSelected = canRevokeSelectedApprovals({
+    batchSupported,
+    busy,
+    canManageApprovals,
+    selectedCount: selectedApprovals.length,
+  });
 
   return (
     <div className="flex flex-col gap-3">
@@ -584,31 +666,6 @@ export function SecurityTab() {
         <>
           <ApprovalSummary scan={visibleScan} />
 
-          {notice && (
-            <div
-              className={`rounded-xl border p-3 text-[11px] ${
-                notice.kind === "error"
-                  ? "border-rose-400/20 bg-rose-400/10 text-rose-200"
-                  : notice.kind === "success"
-                    ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
-                    : "border-blue-400/20 bg-blue-400/10 text-blue-100"
-              }`}
-              role={notice.kind === "error" ? "alert" : "status"}
-            >
-              {notice.message}{" "}
-              {notice.href && (
-                <a
-                  className="link"
-                  href={notice.href}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  View transaction
-                </a>
-              )}
-            </div>
-          )}
-
           {visibleScan.approvals.length === 0 &&
             visibleScan.coverage.status === "complete" && (
               <Card
@@ -633,7 +690,7 @@ export function SecurityTab() {
                     key={approval.id}
                     approval={approval}
                     checked={selected.has(approval.id)}
-                    canAct={scannedWalletConnected && wallet.isBase}
+                    canAct={canManageApprovals}
                     busy={busy}
                     onChecked={(checked) =>
                       setSelected((current) => {
@@ -648,31 +705,25 @@ export function SecurityTab() {
                 ))}
               </div>
 
-              {actionableApprovals.length > 1 && scannedWalletConnected && (
+              {actionableApprovals.length > 0 && canManageApprovals && (
                 <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
                   <button
                     type="button"
                     className="btn btn-ghost"
+                    aria-pressed={allActionableSelected}
                     onClick={() =>
-                      setSelected(
-                        new Set(
-                          actionableApprovals.map((approval) => approval.id)
-                        )
+                      setSelected((current) =>
+                        toggleAllApprovalIds(actionableApprovalIds, current)
                       )
                     }
                     disabled={busy}
                   >
-                    Select verified
+                    {allActionableSelected ? "Unselect all" : "Select all"}
                   </button>
                   <button
                     type="button"
                     className="btn btn-primary"
-                    disabled={
-                      busy ||
-                      !wallet.isBase ||
-                      selectedApprovals.length < 2 ||
-                      !batchSupported
-                    }
+                    disabled={!canRevokeSelected}
                     onClick={() => openConfirmation(selectedApprovals)}
                   >
                     Revoke selected ({selectedApprovals.length})
@@ -680,7 +731,9 @@ export function SecurityTab() {
                   <span className="text-[10px] text-white/45">
                     {batchSupported
                       ? "Atomic batch supported"
-                      : "This wallet requires one-at-a-time revokes"}
+                      : selectedApprovals.length > 1
+                        ? "Atomic batch unavailable — select one permission"
+                        : "Single revoke ready"}
                   </span>
                 </div>
               )}
@@ -723,14 +776,78 @@ export function SecurityTab() {
         </>
       )}
 
-      {confirmation && (
-        <RevokeConfirmation
-          confirmation={confirmation}
-          batchSupported={batchSupported}
-          onCancel={closeConfirmation}
-          onConfirm={() => void confirmRevoke()}
-        />
-      )}
+      {notice &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <ActionNoticeToast
+            notice={notice}
+            onDismiss={() => setNotice(null)}
+          />,
+          document.body
+        )}
+
+      {confirmation &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <RevokeConfirmation
+            confirmation={confirmation}
+            batchSupported={batchSupported}
+            onCancel={closeConfirmation}
+            onConfirm={() => void confirmRevoke()}
+          />,
+          document.body
+        )}
+    </div>
+  );
+}
+
+function ActionNoticeToast({
+  notice,
+  onDismiss,
+}: {
+  notice: ActionNotice;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="pointer-events-none fixed inset-x-3 bottom-4 z-[80] mx-auto max-w-[520px]">
+      <div
+        className={`pointer-events-auto flex items-start gap-3 rounded-xl border p-3 text-[11px] shadow-2xl backdrop-blur-xl ${
+          notice.kind === "error"
+            ? "border-rose-400/30 bg-[#24171d]/95 text-rose-100"
+            : notice.kind === "success"
+              ? "border-emerald-400/30 bg-[#13231d]/95 text-emerald-100"
+              : "border-blue-400/30 bg-[#121d2e]/95 text-blue-100"
+        }`}
+        role={notice.kind === "error" ? "alert" : "status"}
+        aria-live={notice.kind === "error" ? "assertive" : "polite"}
+      >
+        {notice.kind === "pending" && (
+          <span className="wallet-spinner mt-0.5 shrink-0" aria-hidden="true" />
+        )}
+        <p className="min-w-0 flex-1">
+          {notice.message}{" "}
+          {notice.href && (
+            <a
+              className="link whitespace-nowrap"
+              href={notice.href}
+              target="_blank"
+              rel="noreferrer"
+            >
+              View transaction
+            </a>
+          )}
+        </p>
+        {notice.kind !== "pending" && (
+          <button
+            type="button"
+            className="-my-1 shrink-0 rounded-lg px-2 py-1 text-white/55 hover:bg-white/10 hover:text-white"
+            onClick={onDismiss}
+            aria-label="Dismiss message"
+          >
+            ×
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -835,6 +952,7 @@ function ApprovalRow({
           <input
             type="checkbox"
             checked={checked}
+            disabled={busy}
             onChange={(event) => onChecked(event.target.checked)}
             aria-label={`Select ${title} approval`}
             className="mt-1 h-4 w-4 accent-blue-500"
@@ -999,9 +1117,37 @@ function RevokeConfirmation({
           {calls.map((call, index) => (
             <div key={`${call.to}:${index}`} className="subpanel text-[11px]">
               <strong className="text-white/85">{call.label}</strong>
-              <p className="mt-1 text-[9px] text-white/45">
-                Contract {shortAddress(call.to)} · Base mainnet
-              </p>
+              <dl className="mt-2 grid gap-1 text-[9px] text-white/50">
+                <div>
+                  <dt className="inline text-white/35">Asset: </dt>
+                  <dd className="inline text-white/65">
+                    {confirmation.approvals[index].token.name ??
+                      confirmation.approvals[index].token.symbol ??
+                      shortAddress(call.to)}{" "}
+                    ({confirmation.approvals[index].token.standard})
+                  </dd>
+                </div>
+                <div className="break-all">
+                  <dt className="inline text-white/35">Delegate: </dt>
+                  <dd className="inline text-white/65">
+                    {confirmation.approvals[index].delegate.address}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="inline text-white/35">Operation: </dt>
+                  <dd className="inline font-mono text-white/65">
+                    {confirmation.approvals[index].kind === "erc20"
+                      ? "approve(delegate, 0)"
+                      : confirmation.approvals[index].kind === "erc721-token"
+                        ? `approve(0x0, #${confirmation.approvals[index].tokenId})`
+                        : "setApprovalForAll(delegate, false)"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="inline text-white/35">Network / value: </dt>
+                  <dd className="inline text-white/65">Base mainnet · 0 ETH</dd>
+                </div>
+              </dl>
             </div>
           ))}
           {calls.length > 1 && !batchSupported && (

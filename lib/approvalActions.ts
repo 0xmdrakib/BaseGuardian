@@ -21,6 +21,11 @@ export const nftOperatorApprovalAbi = parseAbi([
   "function setApprovalForAll(address operator, bool approved)",
   "function isApprovedForAll(address owner, address operator) view returns (bool)",
 ]);
+export const multicall3Abi = parseAbi([
+  "function aggregate3((address target, bool allowFailure, bytes callData)[] calls) payable returns ((bool success, bytes returnData)[] returnData)",
+]);
+export const BASE_MULTICALL3_ADDRESS =
+  "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
 
 export type RevokeCall = {
   to: `0x${string}`;
@@ -137,4 +142,31 @@ export function isRevokeStateCleared(
   } catch {
     return false;
   }
+}
+
+export function createRevokeVerificationBatch(
+  approvals: readonly BaseApprovalItem[],
+  owner: Address
+) {
+  return approvals.map((approval) => {
+    const call = createRevokeVerificationCall(approval, owner);
+    return {
+      target: call.to,
+      allowFailure: true,
+      callData: call.data,
+    } as const;
+  });
+}
+
+export function clearedApprovalIdsFromVerificationBatch(
+  approvals: readonly BaseApprovalItem[],
+  results: readonly { success: boolean; returnData: Hex }[]
+) {
+  return approvals.flatMap((approval, index) => {
+    const result = results[index];
+    return result?.success &&
+      isRevokeStateCleared(approval, result.returnData)
+      ? [approval.id]
+      : [];
+  });
 }
