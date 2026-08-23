@@ -323,7 +323,7 @@ export async function fetchApprovalLogsFromAlchemyTransfers(
           fromAddress: owner,
           category: options.ownerIsContract
             ? ["internal", "erc20", "erc721", "erc1155"]
-            : ["external"],
+            : ["external", "erc20", "erc721", "erc1155"],
           excludeZeroValue: false,
           order: "asc",
           maxCount: "0x3e8",
@@ -364,7 +364,11 @@ export async function fetchApprovalLogsFromAlchemyTransfers(
     params: [hash],
   }));
   const responses = requests.length
-    ? await rpcBatch(rpcUrl, requests, timeoutMs)
+    ? await rpcBatch(rpcUrl, requests, timeoutMs, {
+        batchSize: 50,
+        concurrency: 1,
+        gapMs: 150,
+      })
     : new Map<number, RpcResponse>();
   const ownerTopic = pad(owner, { size: 32 }).toLowerCase();
   const logs: RpcLog[] = [];
@@ -518,13 +522,21 @@ async function rpcCall<T>(
 async function rpcBatch(
   rpcUrl: string,
   requests: Omit<RpcRequest, "jsonrpc">[],
-  timeoutMs: number
+  timeoutMs: number,
+  options: {
+    batchSize?: number;
+    concurrency?: number;
+    gapMs?: number;
+  } = {}
 ) {
   const output = new Map<number, RpcResponse>();
   const chunks: RpcRequest[][] = [];
-  for (let offset = 0; offset < requests.length; offset += RPC_BATCH_SIZE) {
+  const batchSize = options.batchSize ?? RPC_BATCH_SIZE;
+  const concurrency = options.concurrency ?? RPC_BATCH_CONCURRENCY;
+  const gapMs = options.gapMs ?? RPC_BATCH_GAP_MS;
+  for (let offset = 0; offset < requests.length; offset += batchSize) {
     chunks.push(
-      requests.slice(offset, offset + RPC_BATCH_SIZE).map((request) => ({
+      requests.slice(offset, offset + batchSize).map((request) => ({
         ...request,
         jsonrpc: "2.0" as const,
       }))
@@ -568,13 +580,13 @@ async function rpcBatch(
         }
       }
       if (nextChunk < chunks.length) {
-        await new Promise((resolve) => setTimeout(resolve, RPC_BATCH_GAP_MS));
+        await new Promise((resolve) => setTimeout(resolve, gapMs));
       }
     }
   }
   await Promise.all(
     Array.from(
-      { length: Math.min(RPC_BATCH_CONCURRENCY, chunks.length) },
+      { length: Math.min(concurrency, chunks.length) },
       () => worker()
     )
   );

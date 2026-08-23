@@ -92,7 +92,7 @@ describe("adaptive approval history", () => {
       if (calls === 1) {
         expect(body.method).toBe("alchemy_getAssetTransfers");
         expect(body.params[0]).toMatchObject({
-          category: ["external"],
+          category: ["external", "erc20", "erc721", "erc1155"],
           fromAddress: owner,
           excludeZeroValue: false,
         });
