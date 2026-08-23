@@ -6,11 +6,23 @@ vi.mock("../lib/baseApprovals", () => ({
   getBaseApprovalScan: vi.fn(),
 }));
 vi.mock("../lib/baseNameResolve", () => ({
+  BaseNameResolutionError: class BaseNameResolutionError extends Error {
+    constructor(
+      message: string,
+      readonly status: number
+    ) {
+      super(message);
+    }
+  },
   resolveBaseAddressOrName: vi.fn(async (value: string) => value),
 }));
 
 import { GET } from "../app/api/base/approvals/route";
 import { getBaseApprovalScan } from "../lib/baseApprovals";
+import {
+  BaseNameResolutionError,
+  resolveBaseAddressOrName,
+} from "../lib/baseNameResolve";
 import { resetApiProtectionForTests } from "../lib/apiProtection";
 
 const address = "0x1111111111111111111111111111111111111111";
@@ -70,6 +82,10 @@ describe("approval scan route", () => {
     expect(first.headers.get("Cache-Control")).toContain("s-maxage=60");
     expect(second.status).toBe(200);
     expect(getBaseApprovalScan).toHaveBeenCalledTimes(1);
+    expect(getBaseApprovalScan).toHaveBeenCalledWith(
+      address,
+      expect.objectContaining({ deadlineAt: expect.any(Number) })
+    );
   });
 
   it("returns partial scans with no-store and never caches them", async () => {
@@ -88,5 +104,45 @@ describe("approval scan route", () => {
     const response = await GET(request(`address=${address}&fresh=1`));
     expect(response.headers.get("Cache-Control")).toBe("private, no-store");
     expect(getBaseApprovalScan).toHaveBeenCalledTimes(1);
+  });
+
+  it("coalesces concurrent scans for the same wallet", async () => {
+    const concurrentAddress = "0x5555555555555555555555555555555555555555";
+    let release!: (value: BaseApprovalScan) => void;
+    vi.mocked(getBaseApprovalScan).mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      })
+    );
+
+    const first = GET(request(`address=${concurrentAddress}`));
+    const second = GET(request(`address=${concurrentAddress}`));
+    await vi.waitFor(() => expect(getBaseApprovalScan).toHaveBeenCalledTimes(1));
+    release({ ...scan("complete"), address: concurrentAddress });
+
+    await expect(first).resolves.toMatchObject({ status: 200 });
+    await expect(second).resolves.toMatchObject({ status: 200 });
+  });
+
+  it("returns a retryable JSON error when Alchemy is throttled", async () => {
+    const busyAddress = "0x6666666666666666666666666666666666666666";
+    vi.mocked(getBaseApprovalScan).mockRejectedValue(
+      new Error("Alchemy RPC returned HTTP 429.")
+    );
+    const response = await GET(request(`address=${busyAddress}`));
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("3");
+    await expect(response.json()).resolves.toMatchObject({ retryAfter: 3 });
+  });
+
+  it("returns a typed not-found response for an unresolved name", async () => {
+    vi.mocked(resolveBaseAddressOrName).mockRejectedValueOnce(
+      new BaseNameResolutionError("No Base address was found.", 404)
+    );
+    const response = await GET(request("address=missing.base.eth"));
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: "No Base address was found.",
+    });
   });
 });

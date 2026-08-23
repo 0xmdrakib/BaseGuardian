@@ -61,9 +61,27 @@ export default function HomePage() {
 
             {/* Active tab content */}
             <div className="mt-4">
-              {activeTab === "overview" && <OverviewTab />}
-              {activeTab === "scanner" && <AssetsTab />}
-              {activeTab === "security" && <SecurityTab />}
+              <section
+                role="tabpanel"
+                aria-label="Overview"
+                hidden={activeTab !== "overview"}
+              >
+                <OverviewTab />
+              </section>
+              <section
+                role="tabpanel"
+                aria-label="Security"
+                hidden={activeTab !== "security"}
+              >
+                <SecurityTab />
+              </section>
+              <section
+                role="tabpanel"
+                aria-label="Scanner"
+                hidden={activeTab !== "scanner"}
+              >
+                <AssetsTab />
+              </section>
             </div>
           </div>
 

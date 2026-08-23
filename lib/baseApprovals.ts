@@ -88,6 +88,7 @@ type ScanOptions = {
   rpcUrl?: string;
   historyUrl?: string;
   deadlineMs?: number;
+  deadlineAt?: number;
   maxLogRequests?: number;
   maxTransferPages?: number;
   requestTimeoutMs?: number;
@@ -95,6 +96,7 @@ type ScanOptions = {
 
 const LOG_LIMIT = 10_000;
 const DEFAULT_DEADLINE_MS = 42_000;
+const VERIFICATION_RESERVE_MS = 8_000;
 const DEFAULT_MAX_LOG_REQUESTS = 64;
 const DEFAULT_REQUEST_TIMEOUT_MS = 9_000;
 const MIN_SPLIT_SPAN = 2_000;
@@ -102,7 +104,7 @@ const MAX_VERIFIED_CANDIDATES = 250;
 const HISTORY_PAGE_SIZE = 50;
 const DEFAULT_MAX_HISTORY_PAGES = 200;
 const DEFAULT_MAX_TRANSFER_PAGES = 100;
-const MAX_TRANSFER_RECEIPTS = 1_000;
+const MAX_TRANSFER_RECEIPTS = 250;
 const RPC_BATCH_SIZE = 10;
 const RPC_BATCH_RETRIES = 3;
 const RPC_BATCH_CONCURRENCY = 1;
@@ -111,6 +113,10 @@ const MULTICALL3_ADDRESS = getAddress(
   "0xcA11bde05977b3631167028862bE2a173976CA11"
 );
 const MULTICALL_CHUNK_SIZE = 80;
+
+function remainingMs(deadlineAt: number) {
+  return Math.max(0, deadlineAt - Date.now());
+}
 
 type HistoryLog = {
   contractAddress?: string;
@@ -229,10 +235,13 @@ export async function fetchApprovalLogsFromAlchemyHistory(
   owner: Address,
   snapshotBlock: number,
   options: Pick<ScanOptions, "deadlineMs" | "requestTimeoutMs"> & {
+    deadlineAt?: number;
     maxPages?: number;
   } = {}
 ) {
-  const deadlineAt = Date.now() + (options.deadlineMs ?? DEFAULT_DEADLINE_MS);
+  const deadlineAt =
+    options.deadlineAt ??
+    Date.now() + (options.deadlineMs ?? DEFAULT_DEADLINE_MS);
   const timeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const maxPages = options.maxPages ?? DEFAULT_MAX_HISTORY_PAGES;
   const ownerTopic = pad(owner, { size: 32 });
@@ -301,19 +310,22 @@ export async function fetchApprovalLogsFromAlchemyTransfers(
   snapshotBlock: number,
   options: Pick<
     ScanOptions,
-    "deadlineMs" | "maxTransferPages" | "requestTimeoutMs"
+    "deadlineMs" | "deadlineAt" | "maxTransferPages" | "requestTimeoutMs"
   > & { ownerIsContract?: boolean } = {}
 ) {
-  const deadlineAt = Date.now() + (options.deadlineMs ?? DEFAULT_DEADLINE_MS);
+  const deadlineAt =
+    options.deadlineAt ??
+    Date.now() + (options.deadlineMs ?? DEFAULT_DEADLINE_MS);
   const timeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const maxPages = options.maxTransferPages ?? DEFAULT_MAX_TRANSFER_PAGES;
   const transactionHashes = new Map<Hex, number>();
   let pageKey: string | undefined;
   let pages = 0;
   let complete = false;
+  let transferOverflow = false;
 
   while (pages < maxPages && Date.now() < deadlineAt) {
-    const result = await rpcCall<AssetTransferPage>(
+    const result = await rpcCallWithRetry<AssetTransferPage>(
       rpcUrl,
       "alchemy_getAssetTransfers",
       [
@@ -325,12 +337,13 @@ export async function fetchApprovalLogsFromAlchemyTransfers(
             ? ["internal", "erc20", "erc721", "erc1155"]
             : ["external", "erc20", "erc721", "erc1155"],
           excludeZeroValue: false,
-          order: "asc",
-          maxCount: "0x3e8",
+          order: "desc",
+          maxCount: "0xfa",
           ...(pageKey ? { pageKey } : {}),
         },
       ],
-      Math.min(timeoutMs, Math.max(1, deadlineAt - Date.now()))
+      Math.min(timeoutMs, Math.max(1, deadlineAt - Date.now())),
+      deadlineAt
     );
     if (!Array.isArray(result.transfers)) {
       throw new Error("Alchemy transfers returned an invalid response.");
@@ -348,6 +361,12 @@ export async function fetchApprovalLogsFromAlchemyTransfers(
       }
       transactionHashes.set(transfer.hash as Hex, blockNumber);
     }
+    if (transactionHashes.size >= MAX_TRANSFER_RECEIPTS) {
+      transferOverflow =
+        transactionHashes.size > MAX_TRANSFER_RECEIPTS || Boolean(result.pageKey);
+      complete = !result.pageKey && !transferOverflow;
+      break;
+    }
     if (!result.pageKey) {
       complete = true;
       break;
@@ -356,7 +375,8 @@ export async function fetchApprovalLogsFromAlchemyTransfers(
     pageKey = result.pageKey;
   }
 
-  const receiptOverflow = transactionHashes.size > MAX_TRANSFER_RECEIPTS;
+  const receiptOverflow =
+    transferOverflow || transactionHashes.size > MAX_TRANSFER_RECEIPTS;
   const hashes = [...transactionHashes.keys()].slice(0, MAX_TRANSFER_RECEIPTS);
   const requests = hashes.map((hash, index) => ({
     id: index + 1,
@@ -365,9 +385,10 @@ export async function fetchApprovalLogsFromAlchemyTransfers(
   }));
   const responses = requests.length
     ? await rpcBatch(rpcUrl, requests, timeoutMs, {
-        batchSize: 20,
+        batchSize: RPC_BATCH_SIZE,
         concurrency: 1,
-        gapMs: 250,
+        gapMs: RPC_BATCH_GAP_MS,
+        deadlineAt,
       })
     : new Map<number, RpcResponse>();
   const ownerTopic = pad(owner, { size: 32 }).toLowerCase();
@@ -431,7 +452,7 @@ export function decodeApprovalLog(log: RpcLog): ApprovalCandidate | null {
   if (topic0 === APPROVAL_TOPIC && log.topics.length >= 4) {
     const tokenId = safeBigInt(log.topics[3]);
     return {
-      id: `erc721-token:${tokenAddress.toLowerCase()}:${delegateAddress.toLowerCase()}:${tokenId}`,
+      id: `erc721-token:${tokenAddress.toLowerCase()}:${tokenId}`,
       kind: "erc721-token",
       tokenAddress,
       delegateAddress,
@@ -519,6 +540,72 @@ async function rpcCall<T>(
   return body.result as T;
 }
 
+function rpcErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message.toLowerCase() : "";
+}
+
+function isTransientRpcError(error: unknown) {
+  const message = rpcErrorMessage(error);
+  return (
+    message.includes("429") ||
+    message.includes("rate") ||
+    message.includes("capacity") ||
+    message.includes("502") ||
+    message.includes("503") ||
+    message.includes("504") ||
+    message.includes("timeout") ||
+    message.includes("fetch failed")
+  );
+}
+
+function isSplittableLogRangeError(error: unknown) {
+  const message = rpcErrorMessage(error);
+  return (
+    message.includes("block range") ||
+    message.includes("response size") ||
+    message.includes("too many results") ||
+    message.includes("more than 10000") ||
+    message.includes("more than 10,000") ||
+    message.includes("log limit")
+  );
+}
+
+function isLogTimeoutError(error: unknown) {
+  const message = rpcErrorMessage(error);
+  return message.includes("timeout") || message.includes("timed out");
+}
+
+async function rpcCallWithRetry<T>(
+  rpcUrl: string,
+  method: string,
+  params: unknown[],
+  timeoutMs: number,
+  deadlineAt: number
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < RPC_BATCH_RETRIES; attempt += 1) {
+    const remaining = remainingMs(deadlineAt);
+    if (remaining <= 0) break;
+    try {
+      return await rpcCall<T>(
+        rpcUrl,
+        method,
+        params,
+        Math.min(timeoutMs, remaining)
+      );
+    } catch (error) {
+      lastError = error;
+      if (!isTransientRpcError(error) || attempt + 1 >= RPC_BATCH_RETRIES) break;
+      const delay = Math.min(500 * 2 ** attempt, remainingMs(deadlineAt));
+      if (delay <= 0) break;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Alchemy RPC request exceeded the scan deadline.");
+}
+
 async function rpcBatch(
   rpcUrl: string,
   requests: Omit<RpcRequest, "jsonrpc">[],
@@ -526,6 +613,7 @@ async function rpcBatch(
   options: {
     batchSize?: number;
     concurrency?: number;
+    deadlineAt?: number;
     gapMs?: number;
   } = {}
 ) {
@@ -534,6 +622,7 @@ async function rpcBatch(
   const batchSize = options.batchSize ?? RPC_BATCH_SIZE;
   const concurrency = options.concurrency ?? RPC_BATCH_CONCURRENCY;
   const gapMs = options.gapMs ?? RPC_BATCH_GAP_MS;
+  const deadlineAt = options.deadlineAt ?? Number.POSITIVE_INFINITY;
   for (let offset = 0; offset < requests.length; offset += batchSize) {
     chunks.push(
       requests.slice(offset, offset + batchSize).map((request) => ({
@@ -544,20 +633,28 @@ async function rpcBatch(
   }
   let nextChunk = 0;
   async function worker() {
-    while (nextChunk < chunks.length) {
+    while (nextChunk < chunks.length && Date.now() < deadlineAt) {
       const chunk = chunks[nextChunk++];
       let pending = chunk;
       for (let attempt = 0; attempt < RPC_BATCH_RETRIES && pending.length; attempt += 1) {
+        const remaining = remainingMs(deadlineAt);
+        if (remaining <= 0) break;
         try {
           const response = await fetch(rpcUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(pending),
             cache: "no-store",
-            signal: AbortSignal.timeout(timeoutMs),
+            signal: AbortSignal.timeout(Math.min(timeoutMs, remaining)),
           });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const bodies = (await response.json()) as RpcResponse[];
+          const payload = (await response.json()) as RpcResponse[] | RpcResponse;
+          if (!Array.isArray(payload)) {
+            throw new Error(
+              payload.error?.message || "Alchemy batch returned an invalid response."
+            );
+          }
+          const bodies = payload;
           for (const body of bodies) {
             const message = body.error?.message?.toLowerCase() ?? "";
             const retryable =
@@ -574,13 +671,21 @@ async function rpcBatch(
           // Retry the whole unresolved subset below.
         }
         if (pending.length && attempt + 1 < RPC_BATCH_RETRIES) {
+          const delay = Math.min(
+            1_000 * 2 ** attempt,
+            remainingMs(deadlineAt)
+          );
+          if (delay <= 0) break;
           await new Promise((resolve) =>
-            setTimeout(resolve, 1_000 * 2 ** attempt)
+            setTimeout(resolve, delay)
           );
         }
       }
-      if (nextChunk < chunks.length) {
-        await new Promise((resolve) => setTimeout(resolve, gapMs));
+      if (nextChunk < chunks.length && Date.now() < deadlineAt) {
+        const delay = Math.min(gapMs, remainingMs(deadlineAt));
+        if (delay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
       }
     }
   }
@@ -597,13 +702,17 @@ async function rpcMulticall(
   rpcUrl: string,
   requests: Omit<RpcRequest, "jsonrpc">[],
   blockTag: Hex,
-  timeoutMs: number
+  timeoutMs: number,
+  deadlineAt = Number.POSITIVE_INFINITY
 ) {
   const output = new Map<number, RpcResponse>();
   for (let offset = 0; offset < requests.length; offset += MULTICALL_CHUNK_SIZE) {
+    if (Date.now() >= deadlineAt) break;
     const chunk = requests.slice(offset, offset + MULTICALL_CHUNK_SIZE);
     let handled = false;
     for (let attempt = 0; attempt < RPC_BATCH_RETRIES; attempt += 1) {
+      const remaining = remainingMs(deadlineAt);
+      if (remaining <= 0) break;
       try {
         const calls = chunk.map((request) => {
           const call = request.params[0] as { to: Address; data: Hex };
@@ -618,7 +727,7 @@ async function rpcMulticall(
           rpcUrl,
           "eth_call",
           [{ to: MULTICALL3_ADDRESS, data }, blockTag],
-          timeoutMs
+          Math.min(timeoutMs, remaining)
         );
         const results = decodeFunctionResult({
           abi: multicall3Abi,
@@ -641,14 +750,19 @@ async function rpcMulticall(
         break;
       } catch {
         if (attempt + 1 < RPC_BATCH_RETRIES) {
+          const delay = Math.min(
+            500 * 2 ** attempt,
+            remainingMs(deadlineAt)
+          );
+          if (delay <= 0) break;
           await new Promise((resolve) =>
-            setTimeout(resolve, 500 * 2 ** attempt)
+            setTimeout(resolve, delay)
           );
         }
       }
     }
-    if (!handled) {
-      const fallback = await rpcBatch(rpcUrl, chunk, timeoutMs);
+    if (!handled && Date.now() < deadlineAt) {
+      const fallback = await rpcBatch(rpcUrl, chunk, timeoutMs, { deadlineAt });
       for (const [id, response] of fallback) output.set(id, response);
     }
   }
@@ -661,10 +775,12 @@ export async function fetchApprovalLogsAdaptive(
   snapshotBlock: number,
   options: Pick<
     ScanOptions,
-    "deadlineMs" | "maxLogRequests" | "requestTimeoutMs"
+    "deadlineMs" | "deadlineAt" | "maxLogRequests" | "requestTimeoutMs"
   > = {}
 ) {
-  const deadlineAt = Date.now() + (options.deadlineMs ?? DEFAULT_DEADLINE_MS);
+  const deadlineAt =
+    options.deadlineAt ??
+    Date.now() + (options.deadlineMs ?? DEFAULT_DEADLINE_MS);
   const maxRequests = options.maxLogRequests ?? DEFAULT_MAX_LOG_REQUESTS;
   const timeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const ownerTopic = pad(owner, { size: 32 });
@@ -682,7 +798,7 @@ export async function fetchApprovalLogsAdaptive(
     const [fromBlock, toBlock] = ranges.pop()!;
     requests += 1;
     try {
-      const result = await rpcCall<RpcLog[]>(
+      const result = await rpcCallWithRetry<RpcLog[]>(
         rpcUrl,
         "eth_getLogs",
         [
@@ -692,13 +808,14 @@ export async function fetchApprovalLogsAdaptive(
             topics: [[APPROVAL_TOPIC, APPROVAL_FOR_ALL_TOPIC], ownerTopic],
           },
         ],
-        Math.min(timeoutMs, Math.max(1, deadlineAt - Date.now()))
+        Math.min(timeoutMs, Math.max(1, deadlineAt - Date.now())),
+        deadlineAt
       );
 
       if (result.length >= LOG_LIMIT) {
         if (toBlock > fromBlock) {
           const middle = Math.floor((fromBlock + toBlock) / 2);
-          ranges.push([middle + 1, toBlock], [fromBlock, middle]);
+          ranges.push([fromBlock, middle], [middle + 1, toBlock]);
         } else {
           logs.push(...result);
           complete = false;
@@ -706,13 +823,18 @@ export async function fetchApprovalLogsAdaptive(
       } else {
         logs.push(...result);
       }
-    } catch {
+    } catch (error) {
       const span = toBlock - fromBlock + 1;
-      if (span > MIN_SPLIT_SPAN && Date.now() < deadlineAt) {
+      if (
+        (isSplittableLogRangeError(error) || isLogTimeoutError(error)) &&
+        span > MIN_SPLIT_SPAN &&
+        Date.now() < deadlineAt
+      ) {
         const middle = Math.floor((fromBlock + toBlock) / 2);
-        ranges.push([middle + 1, toBlock], [fromBlock, middle]);
+        ranges.push([fromBlock, middle], [middle + 1, toBlock]);
       } else {
         complete = false;
+        break;
       }
     }
   }
@@ -802,7 +924,8 @@ export async function verifyApprovalCandidates(
   owner: Address,
   snapshotBlock: number,
   candidates: ApprovalCandidate[],
-  timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS
+  timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  deadlineAt = Number.POSITIVE_INFINITY
 ) {
   const blockTag = toHexBlock(snapshotBlock);
   let nextId = 1;
@@ -930,8 +1053,8 @@ export async function verifyApprovalCandidates(
     (request) => request.method === "eth_getCode"
   );
   const [callResponses, codeResponses] = await Promise.all([
-    rpcMulticall(rpcUrl, callRequests, blockTag, timeoutMs),
-    rpcBatch(rpcUrl, codeRequests, timeoutMs),
+    rpcMulticall(rpcUrl, callRequests, blockTag, timeoutMs, deadlineAt),
+    rpcBatch(rpcUrl, codeRequests, timeoutMs, { deadlineAt }),
   ]);
   const responses = new Map<number, RpcResponse>([
     ...callResponses,
@@ -1061,16 +1184,36 @@ export async function getBaseApprovalScan(
   owner: Address,
   options: ScanOptions = {}
 ): Promise<BaseApprovalScan> {
+  const startedAt = Date.now();
+  const scanDeadlineAt =
+    options.deadlineAt ??
+    startedAt + (options.deadlineMs ?? DEFAULT_DEADLINE_MS);
+  const totalBudget = Math.max(1, scanDeadlineAt - startedAt);
+  const verificationReserve = Math.min(
+    VERIFICATION_RESERVE_MS,
+    Math.max(250, Math.floor(totalBudget / 3))
+  );
+  const discoveryDeadlineAt = Math.max(
+    startedAt + 1,
+    scanDeadlineAt - verificationReserve
+  );
   const configured = options.rpcUrl ? null : requireAlchemyBaseConfig();
   const rpcUrl = options.rpcUrl ?? configured!.rpcUrl;
   const timeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
-  const snapshotHex = await rpcCall<Hex>(rpcUrl, "eth_blockNumber", [], timeoutMs);
+  const snapshotHex = await rpcCallWithRetry<Hex>(
+    rpcUrl,
+    "eth_blockNumber",
+    [],
+    timeoutMs,
+    scanDeadlineAt
+  );
   const snapshotBlock = toNumber(snapshotHex);
-  const ownerCode = await rpcCall<Hex>(
+  const ownerCode = await rpcCallWithRetry<Hex>(
     rpcUrl,
     "eth_getCode",
     [owner, toHexBlock(snapshotBlock)],
-    timeoutMs
+    timeoutMs,
+    scanDeadlineAt
   );
   const ownerIsContract = ownerCode !== "0x" && ownerCode !== "0x0";
   let discovery: { complete: boolean; logs: RpcLog[] };
@@ -1078,55 +1221,62 @@ export async function getBaseApprovalScan(
     options.historyUrl ??
     (configured ? getAlchemyTransactionHistoryUrl(configured) : null);
   if (historyUrl) {
-    const [indexedResult, transfersResult] = await Promise.allSettled([
-      fetchApprovalLogsFromAlchemyHistory(
+    let indexedLogs: RpcLog[] = [];
+    let indexedComplete = false;
+    const historyDeadlineAt = Math.min(
+      discoveryDeadlineAt,
+      Date.now() + Math.min(10_000, remainingMs(discoveryDeadlineAt))
+    );
+    try {
+      const indexed = await fetchApprovalLogsFromAlchemyHistory(
         historyUrl,
         owner,
         snapshotBlock,
-        options
-      ),
-      fetchApprovalLogsFromAlchemyTransfers(
+        { ...options, deadlineAt: historyDeadlineAt }
+      );
+      indexedLogs = indexed.logs;
+      indexedComplete = indexed.complete;
+    } catch (error) {
+      console.error("Alchemy address-history approval discovery failed.", error);
+    }
+
+    try {
+      const transfers = await fetchApprovalLogsFromAlchemyTransfers(
         rpcUrl,
         owner,
         snapshotBlock,
-        { ...options, ownerIsContract }
-      ),
-    ]);
-    const indexedLogs =
-      indexedResult.status === "fulfilled" ? indexedResult.value.logs : [];
-    if (indexedResult.status === "rejected") {
-      console.error(
-        "Alchemy address-history approval discovery failed.",
-        indexedResult.reason
+        { ...options, deadlineAt: discoveryDeadlineAt, ownerIsContract }
       );
-    }
-    if (transfersResult.status === "fulfilled") {
       discovery = {
-        complete: transfersResult.value.complete,
-        logs: [...indexedLogs, ...transfersResult.value.logs],
+        complete: indexedComplete && transfers.complete,
+        logs: [...indexedLogs, ...transfers.logs],
       };
-    } else {
+    } catch (error) {
       console.error(
         "Alchemy transfer-receipt approval discovery failed.",
-        transfersResult.reason
+        error
       );
-      const fallback = await fetchApprovalLogsAdaptive(
-        rpcUrl,
-        owner,
-        snapshotBlock,
-        options
-      );
-      discovery = {
-        complete: fallback.complete,
-        logs: [...indexedLogs, ...fallback.logs],
-      };
+      if (Date.now() < discoveryDeadlineAt) {
+        const fallback = await fetchApprovalLogsAdaptive(
+          rpcUrl,
+          owner,
+          snapshotBlock,
+          { ...options, deadlineAt: discoveryDeadlineAt }
+        );
+        discovery = {
+          complete: fallback.complete,
+          logs: [...indexedLogs, ...fallback.logs],
+        };
+      } else {
+        discovery = { complete: false, logs: indexedLogs };
+      }
     }
   } else {
     discovery = await fetchApprovalLogsAdaptive(
       rpcUrl,
       owner,
       snapshotBlock,
-      options
+      { ...options, deadlineAt: discoveryDeadlineAt }
     );
   }
   const candidates = reduceApprovalCandidates(discovery.logs);
@@ -1141,14 +1291,18 @@ export async function getBaseApprovalScan(
     owner,
     snapshotBlock,
     candidatesToVerify,
-    timeoutMs
+    timeoutMs,
+    scanDeadlineAt
   );
   const permit2Detected = approvals.some((approval) => approval.permit2);
   const verificationIncomplete = approvals.some(
     (approval) => approval.verification === "unverified"
   );
   const complete =
-    discovery.complete && !candidateOverflow && !verificationIncomplete;
+    Date.now() < scanDeadlineAt &&
+    discovery.complete &&
+    !candidateOverflow &&
+    !verificationIncomplete;
 
   return {
     address: owner,

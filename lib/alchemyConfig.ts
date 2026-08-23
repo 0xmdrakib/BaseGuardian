@@ -1,5 +1,6 @@
 const ALCHEMY_BASE_HOST = "base-mainnet.g.alchemy.com";
 const ALCHEMY_BASE_PREFIX = `https://${ALCHEMY_BASE_HOST}/v2/`;
+const ALCHEMY_ETHEREUM_PREFIX = "https://eth-mainnet.g.alchemy.com/v2/";
 
 export type AlchemyBaseConfig = {
   apiKey: string;
@@ -71,4 +72,10 @@ export function getAlchemyTransactionHistoryUrl(
   return `https://api.g.alchemy.com/data/v1/${encodeURIComponent(
     config.apiKey
   )}/transactions/history/by-address`;
+}
+
+export function getAlchemyEthereumRpcUrl(
+  config = requireAlchemyBaseConfig()
+) {
+  return `${ALCHEMY_ETHEREUM_PREFIX}${encodeURIComponent(config.apiKey)}`;
 }

@@ -47,6 +47,7 @@ function log(overrides: Record<string, unknown> = {}) {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("approval log decoding", () => {
@@ -81,6 +82,45 @@ describe("approval log decoding", () => {
     expect(reduceApprovalCandidates([active, revoked])).toEqual([]);
     expect(reduceApprovalCandidates([revoked, active])).toEqual([]);
   });
+
+  it("treats an ERC-721 token approval as one state across delegate changes", () => {
+    const otherDelegate =
+      "0x4444444444444444444444444444444444444444" as Address;
+    const approvedA = log({
+      blockNumber: toHex(10),
+      topics: [
+        APPROVAL_TOPIC,
+        topic(owner),
+        topic(delegate),
+        toHex(42n, { size: 32 }),
+      ],
+    });
+    const approvedB = log({
+      blockNumber: toHex(11),
+      topics: [
+        APPROVAL_TOPIC,
+        topic(owner),
+        topic(otherDelegate),
+        toHex(42n, { size: 32 }),
+      ],
+    });
+    const cleared = log({
+      blockNumber: toHex(12),
+      topics: [
+        APPROVAL_TOPIC,
+        topic(owner),
+        topic("0x0000000000000000000000000000000000000000"),
+        toHex(42n, { size: 32 }),
+      ],
+    });
+
+    expect(reduceApprovalCandidates([approvedA, approvedB])).toMatchObject([
+      { delegateAddress: otherDelegate, tokenId: 42n },
+    ]);
+    expect(reduceApprovalCandidates([approvedA, approvedB, cleared])).toEqual(
+      []
+    );
+  });
 });
 
 describe("adaptive approval history", () => {
@@ -95,6 +135,8 @@ describe("adaptive approval history", () => {
           category: ["external", "erc20", "erc721", "erc1155"],
           fromAddress: owner,
           excludeZeroValue: false,
+          maxCount: "0xfa",
+          order: "desc",
         });
         return new Response(
           JSON.stringify({
@@ -160,6 +202,51 @@ describe("adaptive approval history", () => {
       }
     );
     expect(result).toMatchObject({ complete: true, pages: 1, receipts: 0 });
+  });
+
+  it("stops receipt batches at the shared deadline and reports partial", async () => {
+    vi.useFakeTimers();
+    const transfers = Array.from({ length: 250 }, (_, index) => ({
+      hash: `0x${(index + 1).toString(16).padStart(64, "0")}`,
+      blockNum: toHex(1_000 - index),
+    }));
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async (_input, init) => {
+        const body = JSON.parse(String(init?.body));
+        if (!Array.isArray(body)) {
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              result: { transfers, pageKey: "more" },
+            })
+          );
+        }
+        return new Response(
+          JSON.stringify(
+            body.map((request: { id: number }) => ({
+              jsonrpc: "2.0",
+              id: request.id,
+              result: { logs: [] },
+            }))
+          )
+        );
+      });
+
+    const pending = fetchApprovalLogsFromAlchemyTransfers(
+      "https://example.invalid",
+      owner,
+      1_000,
+      { deadlineMs: 1_000, requestTimeoutMs: 100 }
+    );
+    await vi.runAllTimersAsync();
+    const result = await pending;
+
+    expect(result.complete).toBe(false);
+    expect(result.pages).toBe(1);
+    expect(result.receipts).toBe(250);
+    expect(fetchMock.mock.calls.length).toBeLessThan(10);
   });
 
   it("paginates Alchemy wallet history and extracts only owner approval logs", async () => {
@@ -304,6 +391,31 @@ describe("adaptive approval history", () => {
     );
     expect(result.complete).toBe(false);
     expect(result.requests).toBe(1);
+  });
+
+  it("retries a throttled range without recursively splitting it", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("rate limited", { status: 429 }));
+
+    const pending = fetchApprovalLogsAdaptive(
+      "https://example.invalid",
+      owner,
+      100_000,
+      { deadlineMs: 5_000, maxLogRequests: 64, requestTimeoutMs: 1_000 }
+    );
+    await vi.runAllTimersAsync();
+    const result = await pending;
+
+    expect(result.complete).toBe(false);
+    expect(result.requests).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const ranges = fetchMock.mock.calls.map(([, init]) => {
+      const body = JSON.parse(String(init?.body));
+      return body.params[0];
+    });
+    expect(new Set(ranges.map((range) => JSON.stringify(range))).size).toBe(1);
   });
 });
 

@@ -1,48 +1,88 @@
-import { JsonRpcProvider } from "ethers";
-import { requireAlchemyBaseConfig } from "@/lib/alchemyConfig";
+import {
+  createPublicClient,
+  getAddress,
+  http,
+  toCoinType,
+  type Address,
+} from "viem";
+import { normalize } from "viem/ens";
+import { base, mainnet } from "viem/chains";
+import { getAlchemyEthereumRpcUrl } from "@/lib/alchemyConfig";
 
-let provider: JsonRpcProvider | null = null;
+type ResolveName = (name: string) => Promise<Address | null>;
 
-function getProvider(): JsonRpcProvider {
-  if (provider) return provider;
-
-  const { rpcUrl } = requireAlchemyBaseConfig();
-  provider = new JsonRpcProvider(rpcUrl);
-  return provider;
+export class BaseNameResolutionError extends Error {
+  constructor(
+    message: string,
+    readonly status: 400 | 404 | 502
+  ) {
+    super(message);
+    this.name = "BaseNameResolutionError";
+  }
 }
 
-/**
- * Accepts:
- *  - 0x addresses
- *  - .base.eth / .eth names (e.g. 0xmdrakib.base.eth)
- * Returns normalized 0x address (lowercase).
- */
+let ethereumClient: ReturnType<typeof createPublicClient> | null = null;
+
+function getEthereumClient() {
+  if (ethereumClient) return ethereumClient;
+  ethereumClient = createPublicClient({
+    chain: mainnet,
+    transport: http(getAlchemyEthereumRpcUrl(), {
+      // Resolution and approval discovery share one API-route deadline.
+      retryCount: 0,
+      timeout: 6_000,
+    }),
+  });
+  return ethereumClient;
+}
+
+async function resolveNameOnEthereum(name: string): Promise<Address | null> {
+  const client = getEthereumClient();
+  const normalized = normalize(name);
+  const baseAddress = await client.getEnsAddress({
+    name: normalized,
+    coinType: toCoinType(base.id),
+  });
+  if (baseAddress) return baseAddress;
+
+  // Preserve the common case where an ENS profile uses one EVM address and
+  // has not configured a separate Base coin-type record.
+  return client.getEnsAddress({ name: normalized });
+}
+
 export async function resolveBaseAddressOrName(
-  input: string
+  input: string,
+  resolveName: ResolveName = resolveNameOnEthereum
 ): Promise<string> {
   const trimmed = input.trim();
 
-  // Plain 0x address
-  if (trimmed.startsWith("0x") && trimmed.length === 42) {
-    return trimmed.toLowerCase();
+  if (/^0x[0-9a-fA-F]{40}$/.test(trimmed)) {
+    return getAddress(trimmed).toLowerCase();
   }
 
   const lower = trimmed.toLowerCase();
-
-  // Accept name forms like "0xmdrakib.base.eth"
-  if (lower.endsWith(".base.eth") || lower.endsWith(".eth")) {
-    const p = getProvider();
-    try {
-      const resolved = await p.resolveName(lower);
-      if (!resolved) {
-        throw new Error(`Could not resolve name ${lower}`);
-      }
-      return resolved.toLowerCase();
-    } catch (err) {
-      console.error("Name resolution error", err);
-      throw new Error(`Failed to resolve name: ${lower}`);
-    }
+  if (!lower.endsWith(".base.eth") && !lower.endsWith(".eth")) {
+    throw new BaseNameResolutionError(
+      "Enter a valid EVM address, .eth name, or .base.eth name.",
+      400
+    );
   }
 
-  throw new Error("Input must be a 0x address or .base.eth name");
+  try {
+    const resolved = await resolveName(lower);
+    if (!resolved) {
+      throw new BaseNameResolutionError(
+        `No Base address was found for ${lower}.`,
+        404
+      );
+    }
+    return getAddress(resolved).toLowerCase();
+  } catch (error) {
+    if (error instanceof BaseNameResolutionError) throw error;
+    console.error("Base name resolution failed", error);
+    throw new BaseNameResolutionError(
+      `Could not resolve ${lower} right now. Please try again.`,
+      502
+    );
+  }
 }

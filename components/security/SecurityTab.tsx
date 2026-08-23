@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import {
   useCapabilities,
   useConfig,
@@ -15,10 +22,22 @@ import { useSmartWalletInput } from "@/components/wallet/useSmartWalletInput";
 import { useWallet } from "@/components/wallet/WalletContext";
 import {
   createRevokeCall,
+  createRevokeVerificationCall,
   erc20ApprovalAbi,
   erc721ApprovalAbi,
+  isRevokeStateCleared,
   nftOperatorApprovalAbi,
 } from "@/lib/approvalActions";
+import {
+  approvalScanRequestReducer,
+  approvalScanRequestUrl,
+  initialApprovalScanRequestState,
+  normalizeApprovalScanQuery,
+  parseApprovalScanCache,
+  parseApprovalScanResponse,
+  removeApprovalItems,
+  serializeApprovalScanCache,
+} from "@/lib/approvalScanClient";
 import type { BaseApprovalItem, BaseApprovalScan } from "@/lib/approvalTypes";
 
 type Confirmation = {
@@ -32,41 +51,32 @@ type ActionNotice = {
   href?: string;
 };
 
-const APPROVAL_CACHE_PREFIX = "baseguardian:approval-scan:";
-const APPROVAL_CACHE_FRESH_MS = 2 * 60_000;
-const APPROVAL_CACHE_MAX_AGE_MS = 10 * 60_000;
+const APPROVAL_CACHE_PREFIX = "baseguardian:approval-scan:v1:";
+const APPROVAL_SCAN_TIMEOUT_MS = 55_000;
 
-type CachedApprovalScan = {
-  savedAt: number;
-  scan: BaseApprovalScan;
-};
-
-function readCachedApprovalScan(input: string): CachedApprovalScan | null {
+function readCachedApprovalScan(input: string) {
   if (typeof window === "undefined") return null;
+  const key = `${APPROVAL_CACHE_PREFIX}${input}`;
   try {
-    const raw = window.localStorage.getItem(
-      `${APPROVAL_CACHE_PREFIX}${input.toLowerCase()}`
-    );
+    const raw = window.localStorage.getItem(key);
     if (!raw) return null;
-    const cached = JSON.parse(raw) as CachedApprovalScan;
-    if (
-      !cached?.scan?.address ||
-      !Array.isArray(cached.scan.approvals) ||
-      Date.now() - cached.savedAt > APPROVAL_CACHE_MAX_AGE_MS
-    ) {
-      return null;
-    }
+    const cached = parseApprovalScanCache(raw);
+    if (!cached) window.localStorage.removeItem(key);
     return cached;
   } catch {
     return null;
   }
 }
 
-function writeCachedApprovalScan(keys: string[], scan: BaseApprovalScan) {
+function writeCachedApprovalScan(
+  keys: string[],
+  scan: BaseApprovalScan,
+  requiresFresh = false
+) {
   if (typeof window === "undefined") return;
   try {
-    const value = JSON.stringify({ savedAt: Date.now(), scan });
-    for (const key of new Set(keys.map((item) => item.toLowerCase()))) {
+    const value = serializeApprovalScanCache(scan, Date.now(), requiresFresh);
+    for (const key of new Set(keys.map(normalizeApprovalScanQuery))) {
       window.localStorage.setItem(`${APPROVAL_CACHE_PREFIX}${key}`, value);
     }
   } catch {
@@ -111,10 +121,16 @@ export function SecurityTab() {
     useConnectedWallet: applyConnectedWallet,
     value: approvalAddress,
   } = useSmartWalletInput();
-  const [scan, setScan] = useState<BaseApprovalScan | null>(null);
-  const [scanFor, setScanFor] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanState, dispatchScan] = useReducer(
+    approvalScanRequestReducer,
+    initialApprovalScanRequestState
+  );
+  const requestSequenceRef = useRef(0);
+  const activeScanRef = useRef<{
+    controller: AbortController;
+    query: string;
+    requestId: number;
+  } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [notice, setNotice] = useState<ActionNotice | null>(null);
@@ -128,9 +144,12 @@ export function SecurityTab() {
     query: { enabled: wallet.isConnected && wallet.isBase },
   });
 
-  const currentInput = approvalAddress.trim().toLowerCase();
-  const visibleScan = scanFor === currentInput ? scan : null;
-  const visibleError = scanFor === currentInput ? scanError : null;
+  const currentInput = normalizeApprovalScanQuery(approvalAddress);
+  const observedInputRef = useRef(currentInput);
+  const visibleScan = scanState.query === currentInput ? scanState.scan : null;
+  const visibleError =
+    scanState.query === currentInput ? scanState.error : null;
+  const loading = scanState.phase !== "idle";
   const scannedWalletConnected = Boolean(
     visibleScan &&
       connectedAddress &&
@@ -150,97 +169,147 @@ export function SecurityTab() {
       ? `https://revoke.cash/address/${encodeURIComponent(approvalAddress.trim())}?chain=base`
       : "https://revoke.cash/?chain=base";
 
+  const cancelActiveScan = useCallback(() => {
+    const active = activeScanRef.current;
+    if (!active) return;
+    activeScanRef.current = null;
+    active.controller.abort();
+    dispatchScan({ type: "cancel", requestId: active.requestId });
+  }, []);
+
+  const clearForInputChange = useCallback(
+    (nextInput: string) => {
+      const normalized = normalizeApprovalScanQuery(nextInput);
+      if (normalized === observedInputRef.current) return;
+      observedInputRef.current = normalized;
+      cancelActiveScan();
+      dispatchScan({ type: "reset" });
+      setSelected(new Set());
+      setConfirmation(null);
+      setNotice(null);
+    },
+    [cancelActiveScan]
+  );
+
+  useEffect(() => {
+    if (observedInputRef.current !== currentInput) {
+      clearForInputChange(approvalAddress);
+    }
+  }, [approvalAddress, clearForInputChange, currentInput]);
+
+  useEffect(
+    () => () => {
+      activeScanRef.current?.controller.abort();
+      activeScanRef.current = null;
+    },
+    []
+  );
+
   const runScan = useCallback(
-    async (force = false) => {
+    async () => {
       const trimmed = approvalAddress.trim();
-      const normalizedInput = trimmed.toLowerCase();
-      const isSameQuery = scanFor === normalizedInput;
-      setScanFor(normalizedInput);
-      setScanError(null);
+      const normalizedInput = normalizeApprovalScanQuery(trimmed);
       setSelected(new Set());
       setNotice(null);
-      if (!isSameQuery) setScan(null);
       if (!trimmed) {
-        setScan(null);
-        setScanError("Paste a Base wallet address or supported name.");
+        dispatchScan({
+          type: "validation-failure",
+          query: normalizedInput,
+          error: "Paste a Base wallet address or supported name.",
+        });
         return;
+      }
+
+      const currentRequest = activeScanRef.current;
+      if (currentRequest?.query === normalizedInput) return;
+      if (currentRequest) {
+        currentRequest.controller.abort();
+        dispatchScan({
+          type: "cancel",
+          requestId: currentRequest.requestId,
+        });
       }
 
       const cached = readCachedApprovalScan(normalizedInput);
-      if (cached) setScan(cached.scan);
-      if (
-        !force &&
-        cached?.scan.coverage.status === "complete" &&
-        Date.now() - cached.savedAt <= APPROVAL_CACHE_FRESH_MS
-      ) {
-        return;
-      }
+      const requiresFresh = cached?.requiresFresh === true;
+      const requestId = ++requestSequenceRef.current;
+      const controller = new AbortController();
+      activeScanRef.current = { controller, query: normalizedInput, requestId };
+      dispatchScan({
+        type: "start",
+        requestId,
+        query: normalizedInput,
+        cachedScan: cached?.scan,
+      });
 
-      setLoading(true);
+      let timedOut = false;
+      const timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, APPROVAL_SCAN_TIMEOUT_MS);
       try {
         const response = await fetch(
-          `/api/base/approvals?address=${encodeURIComponent(trimmed)}${force ? "&fresh=1" : ""}`,
-          { signal: AbortSignal.timeout(58_000) }
+          approvalScanRequestUrl(trimmed, requiresFresh),
+          { signal: controller.signal }
         );
-        const body = (await response.json().catch(() => ({
-          error: `Approval scan failed with HTTP ${response.status}.`,
-        }))) as BaseApprovalScan & { error?: string };
-        if (!response.ok) throw new Error(body.error ?? "Approval scan failed.");
-        setScan(body);
+        const body = await parseApprovalScanResponse(response);
+        if (
+          controller.signal.aborted ||
+          activeScanRef.current?.requestId !== requestId
+        ) {
+          return;
+        }
+        dispatchScan({
+          type: "success",
+          requestId,
+          query: normalizedInput,
+          scan: body,
+        });
         writeCachedApprovalScan(
-          [normalizedInput, body.address.toLowerCase()],
+          [normalizedInput, body.address],
           body
         );
       } catch (error) {
-        const message = friendlyScanError(error);
-        if (!cached) setScan(null);
-        setScanError(
-          cached
+        if (controller.signal.aborted && !timedOut) return;
+        const message = timedOut
+          ? "The scan took too long. Please wait a moment and try again."
+          : friendlyScanError(error);
+        dispatchScan({
+          type: "failure",
+          requestId,
+          query: normalizedInput,
+          error: cached
             ? `${message} Showing the most recent saved scan.`
-            : message
-        );
+            : message,
+        });
       } finally {
-        setLoading(false);
+        window.clearTimeout(timeoutId);
+        if (activeScanRef.current?.requestId === requestId) {
+          activeScanRef.current = null;
+        }
       }
     },
-    [approvalAddress, scanFor]
+    [approvalAddress]
   );
   const closeConfirmation = useCallback(() => setConfirmation(null), []);
 
   const removeApprovals = useCallback(
     (ids: string[]) => {
-      setScan((current) => {
-        if (!current) return current;
-        const approvals = current.approvals.filter(
-          (approval) => !ids.includes(approval.id)
-        );
-        const updated = {
-          ...current,
-          approvals,
-          summary: {
-            active: approvals.length,
-            unlimited: approvals.filter((approval) => approval.value.unlimited)
-              .length,
-            nftOperators: approvals.filter(
-              (approval) => approval.kind === "nft-operator"
-            ).length,
-            highExposure: approvals.filter(
-              (approval) => approval.exposure === "high"
-            ).length,
-            unverified: approvals.filter(
-              (approval) => approval.verification === "unverified"
-            ).length,
-          },
-        };
-        writeCachedApprovalScan(
-          [scanFor, updated.address.toLowerCase()],
-          updated
-        );
-        return updated;
+      if (!scanState.scan) return;
+      const updated = removeApprovalItems(scanState.scan, ids);
+      dispatchScan({
+        type: "replace",
+        query: scanState.query,
+        scan: updated,
       });
+      writeCachedApprovalScan(
+        [scanState.query, updated.address],
+        updated,
+        true
+      );
       setSelected(new Set());
     },
-    [scanFor]
+    [scanState.query, scanState.scan]
   );
 
   const openConfirmation = (approvals: BaseApprovalItem[]) => {
@@ -264,6 +333,22 @@ export function SecurityTab() {
       mode: actionable.length > 1 ? "batch" : "single",
     });
     setNotice(null);
+  };
+
+  const verifyRevokedApprovals = async (approvals: BaseApprovalItem[]) => {
+    if (!publicClient || !wallet.address) return [];
+    const checks = await Promise.allSettled(
+      approvals.map(async (approval) => {
+        const call = createRevokeVerificationCall(approval, wallet.address!);
+        const result = await publicClient.call({ to: call.to, data: call.data });
+        return isRevokeStateCleared(approval, result.data)
+          ? approval.id
+          : null;
+      })
+    );
+    return checks.flatMap((check) =>
+      check.status === "fulfilled" && check.value ? [check.value] : []
+    );
   };
 
   const confirmRevoke = async () => {
@@ -334,7 +419,20 @@ export function SecurityTab() {
         if (receipt.status !== "success") {
           throw new Error("The revoke transaction reverted.");
         }
-        removeApprovals(submittedIds);
+        setNotice({
+          kind: "pending",
+          message: "Confirmed. Verifying the permission is cleared…",
+          href: `https://basescan.org/tx/${hash}`,
+        });
+        const clearedIds = await verifyRevokedApprovals(
+          confirmation.approvals
+        );
+        if (clearedIds.length !== submittedIds.length) {
+          throw new Error(
+            "The transaction confirmed, but the permission is still active or could not be verified. It was not removed."
+          );
+        }
+        removeApprovals(clearedIds);
         setNotice({
           kind: "success",
           message:
@@ -364,7 +462,22 @@ export function SecurityTab() {
         });
         if (status.status !== "success") throw new Error("The batch revoke failed.");
         const transactionHash = status.receipts?.[0]?.transactionHash;
-        removeApprovals(submittedIds);
+        setNotice({
+          kind: "pending",
+          message: "Batch confirmed. Verifying each permission is cleared…",
+          href: transactionHash
+            ? `https://basescan.org/tx/${transactionHash}`
+            : undefined,
+        });
+        const clearedIds = await verifyRevokedApprovals(
+          confirmation.approvals
+        );
+        if (clearedIds.length) removeApprovals(clearedIds);
+        if (clearedIds.length !== submittedIds.length) {
+          throw new Error(
+            `${submittedIds.length - clearedIds.length} permission${submittedIds.length - clearedIds.length === 1 ? " is" : "s are"} still active or could not be verified.`
+          );
+        }
         setNotice({
           kind: "success",
           message:
@@ -386,7 +499,7 @@ export function SecurityTab() {
     visibleScan?.approvals.filter(
       (approval) => approval.verification === "verified"
     ) ?? [];
-  const busy = actionPending;
+  const busy = actionPending || loading;
 
   return (
     <div className="flex flex-col gap-3">
@@ -406,20 +519,20 @@ export function SecurityTab() {
               className="input flex-1"
               value={approvalAddress}
               onChange={(event) => {
-                setApprovalAddress(event.target.value);
-                setSelected(new Set());
-                setNotice(null);
+                const nextValue = event.target.value;
+                clearForInputChange(nextValue);
+                setApprovalAddress(nextValue);
               }}
               disabled={actionPending}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !loading) {
-                  void runScan(Boolean(visibleScan));
+                  void runScan();
                 }
               }}
             />
             <button
               type="button"
-              onClick={() => void runScan(Boolean(visibleScan))}
+              onClick={() => void runScan()}
               disabled={loading || actionPending}
               className="btn btn-primary"
             >
@@ -437,9 +550,8 @@ export function SecurityTab() {
             <button
               type="button"
               onClick={() => {
+                clearForInputChange(connectedAddress);
                 applyConnectedWallet();
-                setSelected(new Set());
-                setNotice(null);
               }}
               className="text-[10px] font-medium text-blue-300 transition hover:text-blue-200"
             >

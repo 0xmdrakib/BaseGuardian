@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { decodeFunctionData } from "viem";
+import { decodeFunctionData, encodeFunctionResult } from "viem";
 import {
   createRevokeCall,
+  createRevokeVerificationCall,
   erc20ApprovalAbi,
   erc721ApprovalAbi,
+  isRevokeStateCleared,
   nftOperatorApprovalAbi,
 } from "../lib/approvalActions";
 import type { BaseApprovalItem } from "../lib/approvalTypes";
@@ -78,5 +80,65 @@ describe("approval revoke calls", () => {
         approval("erc20", { verification: "unverified", exposure: "unknown" })
       )
     ).toThrow("Unverified approvals cannot be revoked");
+  });
+
+  it("verifies ERC-20 state instead of trusting receipt success", () => {
+    const item = approval("erc20");
+    const call = createRevokeVerificationCall(
+      item,
+      "0x1111111111111111111111111111111111111111"
+    );
+    expect(
+      decodeFunctionData({ abi: erc20ApprovalAbi, data: call.data })
+    ).toMatchObject({
+      functionName: "allowance",
+      args: [
+        "0x1111111111111111111111111111111111111111",
+        "0x2222222222222222222222222222222222222222",
+      ],
+    });
+    expect(
+      isRevokeStateCleared(
+        item,
+        encodeFunctionResult({
+          abi: erc20ApprovalAbi,
+          functionName: "allowance",
+          result: 0n,
+        })
+      )
+    ).toBe(true);
+    expect(
+      isRevokeStateCleared(
+        item,
+        encodeFunctionResult({
+          abi: erc20ApprovalAbi,
+          functionName: "allowance",
+          result: 1n,
+        })
+      )
+    ).toBe(false);
+  });
+
+  it("verifies cleared NFT token and operator permissions", () => {
+    expect(
+      isRevokeStateCleared(
+        approval("erc721-token"),
+        encodeFunctionResult({
+          abi: erc721ApprovalAbi,
+          functionName: "getApproved",
+          result: "0x0000000000000000000000000000000000000000",
+        })
+      )
+    ).toBe(true);
+    expect(
+      isRevokeStateCleared(
+        approval("nft-operator"),
+        encodeFunctionResult({
+          abi: nftOperatorApprovalAbi,
+          functionName: "isApprovedForAll",
+          result: false,
+        })
+      )
+    ).toBe(true);
   });
 });
