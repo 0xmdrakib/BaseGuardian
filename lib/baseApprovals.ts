@@ -21,6 +21,7 @@ import type {
   BaseApprovalItem,
   BaseApprovalScan,
 } from "./approvalTypes";
+import { safeServerError } from "./safeServerError";
 
 export const APPROVAL_TOPIC =
   "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925";
@@ -1366,7 +1367,10 @@ export async function getBaseApprovalScan(
       exhaustiveLogs = exhaustive.logs;
       exhaustiveComplete = exhaustive.complete;
     } catch (error) {
-      console.error("Full-range approval discovery failed.", error);
+      console.error(
+        "Full-range approval discovery failed.",
+        safeServerError(error)
+      );
     }
 
     if (exhaustiveComplete) {
@@ -1393,7 +1397,7 @@ export async function getBaseApprovalScan(
       } catch (error) {
         console.error(
           "Alchemy external-receipt approval discovery failed.",
-          error
+          safeServerError(error)
         );
       }
 
@@ -1410,7 +1414,7 @@ export async function getBaseApprovalScan(
         } catch (error) {
           console.error(
             "Alchemy address-history approval discovery failed.",
-            error
+            safeServerError(error)
           );
         }
       }
@@ -1440,7 +1444,7 @@ export async function getBaseApprovalScan(
       } catch (error) {
         console.error(
           "Alchemy address-history approval discovery failed.",
-          error
+          safeServerError(error)
         );
       }
 
@@ -1461,7 +1465,7 @@ export async function getBaseApprovalScan(
         } catch (error) {
           console.error(
             "Alchemy contract-activity approval discovery failed.",
-            error
+            safeServerError(error)
           );
         }
       }

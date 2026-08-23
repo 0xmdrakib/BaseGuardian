@@ -5,6 +5,7 @@ import { getBaseNftCollectionSummary } from "@/lib/baseNft";
 import { protectBaseApi } from "@/lib/apiProtection";
 import { errorJson, publicJson } from "@/lib/apiResponses";
 import { validateEvmAddress } from "@/lib/apiValidation";
+import { safeServerError } from "@/lib/safeServerError";
 
 export async function GET(req: NextRequest) {
   const denied = await protectBaseApi(req, "nft");
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
     const summary = await getBaseNftCollectionSummary(contract);
     return publicJson(summary, 180);
   } catch (err: unknown) {
-    console.error("Error in Base NFT summary", err);
+    console.error("Error in Base NFT summary", safeServerError(err));
     return errorJson("Failed to fetch NFT info from Base", 500);
   }
 }

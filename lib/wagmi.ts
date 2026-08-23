@@ -1,9 +1,32 @@
-import { createConfig, http } from "wagmi";
-import { base } from "wagmi/chains";
+import { createConfig } from "wagmi";
 import { injected, walletConnect } from "wagmi/connectors";
+import { custom, type Transport } from "viem";
+import { createAppBaseChain } from "@/lib/baseChain";
 import { getBuilderCodeDataSuffix } from "@/lib/builderCode";
 
 const APP_URL = "https://baseguardian.rakibhq.xyz";
+
+export function createDisabledBrowserRpcTransport(
+  rpcDisabledUrl: string
+): Transport {
+  const disabled = custom(
+    {
+      request: async ({ method }) => {
+        throw new Error(`Direct browser Base RPC is disabled: ${method}`);
+      },
+    },
+    {
+      key: "disabled-browser-base-rpc",
+      name: "Server-only Base RPC",
+      retryCount: 0,
+    }
+  );
+
+  return (options) => ({
+    ...disabled(options),
+    value: { url: rpcDisabledUrl },
+  });
+}
 
 function createWagmiConfig() {
   const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
@@ -16,6 +39,8 @@ function createWagmiConfig() {
   }
 
   const appUrl = typeof window === "undefined" ? APP_URL : window.location.origin;
+  const rpcDisabledUrl = `${appUrl}/api/base/rpc-disabled`;
+  const appBase = createAppBaseChain(rpcDisabledUrl);
   const connectors =
     typeof window === "undefined"
       ? [injected({ shimDisconnect: true })]
@@ -34,13 +59,13 @@ function createWagmiConfig() {
         ];
 
   return createConfig({
-    chains: [base],
+    chains: [appBase],
     connectors,
     multiInjectedProviderDiscovery: true,
     ssr: true,
     ...(dataSuffix ? { dataSuffix } : {}),
     transports: {
-      [base.id]: http(),
+      [appBase.id]: createDisabledBrowserRpcTransport(rpcDisabledUrl),
     },
   });
 }

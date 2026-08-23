@@ -16,6 +16,7 @@ import {
   getAlchemyEthereumRpcUrl,
   requireAlchemyBaseConfig,
 } from "@/lib/alchemyConfig";
+import { safeServerError } from "@/lib/safeServerError";
 
 type ResolveName = (name: string) => Promise<Address | null>;
 
@@ -181,7 +182,7 @@ export async function resolveBaseAddressOrName(
     return getAddress(resolved).toLowerCase();
   } catch (error) {
     if (error instanceof BaseNameResolutionError) throw error;
-    console.error("Base name resolution failed", error);
+    console.error("Base name resolution failed", safeServerError(error));
     throw new BaseNameResolutionError(
       `Could not resolve ${lower} right now. Please try again.`,
       502

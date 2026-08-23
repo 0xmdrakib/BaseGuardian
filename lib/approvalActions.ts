@@ -33,6 +33,16 @@ export type RevokeCall = {
   label: string;
 };
 
+export type RevokeVerificationDescriptor = Pick<
+  BaseApprovalItem,
+  "id" | "kind" | "tokenId"
+> & {
+  token: Pick<BaseApprovalItem["token"], "address">;
+  delegate: Pick<BaseApprovalItem["delegate"], "address">;
+};
+
+export type DecodedRevokeState = "cleared" | "active" | "unverified";
+
 export function createRevokeCall(approval: BaseApprovalItem): RevokeCall {
   if (approval.verification !== "verified") {
     throw new Error("Unverified approvals cannot be revoked in-app.");
@@ -75,7 +85,7 @@ export function createRevokeCall(approval: BaseApprovalItem): RevokeCall {
 }
 
 export function createRevokeVerificationCall(
-  approval: BaseApprovalItem,
+  approval: RevokeVerificationDescriptor,
   owner: Address
 ): Pick<RevokeCall, "to" | "data"> {
   if (approval.kind === "erc20") {
@@ -110,10 +120,17 @@ export function createRevokeVerificationCall(
 }
 
 export function isRevokeStateCleared(
-  approval: BaseApprovalItem,
+  approval: RevokeVerificationDescriptor,
   result: Hex | undefined
 ) {
-  if (!result) return false;
+  return decodeRevokeState(approval, result) === "cleared";
+}
+
+export function decodeRevokeState(
+  approval: RevokeVerificationDescriptor,
+  result: Hex | undefined
+): DecodedRevokeState {
+  if (!result) return "unverified";
   try {
     if (approval.kind === "erc20") {
       return (
@@ -122,7 +139,9 @@ export function isRevokeStateCleared(
           functionName: "allowance",
           data: result,
         }) === 0n
-      );
+      )
+        ? "cleared"
+        : "active";
     }
     if (approval.kind === "erc721-token") {
       const approved = decodeFunctionResult({
@@ -130,7 +149,7 @@ export function isRevokeStateCleared(
         functionName: "getApproved",
         data: result,
       });
-      return isAddressEqual(approved, zeroAddress);
+      return isAddressEqual(approved, zeroAddress) ? "cleared" : "active";
     }
     return (
       decodeFunctionResult({
@@ -138,14 +157,16 @@ export function isRevokeStateCleared(
         functionName: "isApprovedForAll",
         data: result,
       }) === false
-    );
+    )
+      ? "cleared"
+      : "active";
   } catch {
-    return false;
+    return "unverified";
   }
 }
 
 export function createRevokeVerificationBatch(
-  approvals: readonly BaseApprovalItem[],
+  approvals: readonly RevokeVerificationDescriptor[],
   owner: Address
 ) {
   return approvals.map((approval) => {
@@ -159,7 +180,7 @@ export function createRevokeVerificationBatch(
 }
 
 export function clearedApprovalIdsFromVerificationBatch(
-  approvals: readonly BaseApprovalItem[],
+  approvals: readonly RevokeVerificationDescriptor[],
   results: readonly { success: boolean; returnData: Hex }[]
 ) {
   return approvals.flatMap((approval, index) => {

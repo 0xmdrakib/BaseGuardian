@@ -5,7 +5,9 @@ export type BaseApiCategory =
   | "tokens"
   | "token-info"
   | "nft"
-  | "approvals";
+  | "approvals"
+  | "revoke-status"
+  | "rpc-disabled";
 
 type WindowLimit = { id: string; max: number; windowMs: number };
 type Counter = { count: number; resetAt: number; lastSeenAt: number };
@@ -25,6 +27,8 @@ const CATEGORY_LIMITS: Record<BaseApiCategory, WindowLimit> = {
   "token-info": { id: "token-info-minute", max: 20, windowMs: MINUTE },
   nft: { id: "nft-minute", max: 15, windowMs: MINUTE },
   approvals: { id: "approvals-minute", max: 6, windowMs: MINUTE },
+  "revoke-status": { id: "revoke-status-minute", max: 20, windowMs: MINUTE },
+  "rpc-disabled": { id: "rpc-disabled-minute", max: 20, windowMs: MINUTE },
 };
 
 // Cloudflare provides the shared edge limit. Vercel instances do not share

@@ -8,6 +8,7 @@ import { resolveBaseAddressOrName } from "@/lib/baseNameResolve";
 import { protectBaseApi } from "@/lib/apiProtection";
 import { errorJson, publicJson } from "@/lib/apiResponses";
 import { validateWalletAddressOrName } from "@/lib/apiValidation";
+import { safeServerError } from "@/lib/safeServerError";
 
 type WalletActivity = {
   address: string;
@@ -87,7 +88,7 @@ export async function GET(req: NextRequest) {
 
     return publicJson(payload, 120);
   } catch (err: unknown) {
-    console.error("Error in Base wallet summary", err);
+    console.error("Error in Base wallet summary", safeServerError(err));
     return errorJson("Failed to fetch Base wallet summary", 500);
   }
 }

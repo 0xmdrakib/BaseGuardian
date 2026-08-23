@@ -12,23 +12,17 @@ import { createPortal } from "react-dom";
 import {
   useCapabilities,
   useConfig,
-  usePublicClient,
   useSendCalls,
   useWriteContract,
 } from "wagmi";
 import { waitForCallsStatus } from "wagmi/actions";
-import { base } from "wagmi/chains";
 import { Card } from "@/components/shared/Card";
 import { useSmartWalletInput } from "@/components/wallet/useSmartWalletInput";
 import { useWallet } from "@/components/wallet/WalletContext";
 import {
-  BASE_MULTICALL3_ADDRESS,
-  clearedApprovalIdsFromVerificationBatch,
   createRevokeCall,
-  createRevokeVerificationBatch,
   erc20ApprovalAbi,
   erc721ApprovalAbi,
-  multicall3Abi,
   nftOperatorApprovalAbi,
 } from "@/lib/approvalActions";
 import {
@@ -50,6 +44,12 @@ import {
 } from "@/lib/approvalSelection";
 import type { BaseApprovalItem, BaseApprovalScan } from "@/lib/approvalTypes";
 import { getBuilderCodeDataSuffix } from "@/lib/builderCode";
+import { BASE_MAINNET_CHAIN_ID } from "@/lib/baseChain";
+import {
+  createRevokeVerificationRequest,
+  waitForPrivateRevokeVerification,
+  type RevokeVerificationRequest,
+} from "@/lib/revokeVerification";
 
 type Confirmation = {
   approvals: BaseApprovalItem[];
@@ -60,6 +60,12 @@ type ActionNotice = {
   kind: "pending" | "success" | "error";
   message: string;
   href?: string;
+};
+
+type PendingVerification = {
+  request: RevokeVerificationRequest;
+  approvals: BaseApprovalItem[];
+  href: string;
 };
 
 const APPROVAL_CACHE_PREFIX = "baseguardian:approval-scan:v2:";
@@ -101,6 +107,9 @@ function shortAddress(address: string) {
 
 function friendlyActionError(error: unknown) {
   if (!(error instanceof Error)) return "The wallet request failed.";
+  if (error.name === "TimeoutError") {
+    return "Base confirmation is taking longer than expected.";
+  }
   const lower = error.message.toLowerCase();
   if (
     lower.includes("user rejected") ||
@@ -147,13 +156,14 @@ export function SecurityTab() {
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [notice, setNotice] = useState<ActionNotice | null>(null);
   const [actionPending, setActionPending] = useState(false);
+  const [pendingVerification, setPendingVerification] =
+    useState<PendingVerification | null>(null);
   const config = useConfig();
-  const publicClient = usePublicClient({ chainId: base.id });
   const writeContract = useWriteContract();
   const sendCalls = useSendCalls();
   const builderCodeDataSuffix = getBuilderCodeDataSuffix();
   const capabilities = useCapabilities({
-    chainId: base.id,
+    chainId: BASE_MAINNET_CHAIN_ID,
     query: { enabled: wallet.isConnected && wallet.isBase },
   });
 
@@ -179,9 +189,23 @@ export function SecurityTab() {
       ) ?? [],
     [visibleScan]
   );
+  const pendingVerificationIds = useMemo(
+    () =>
+      new Set(
+        pendingVerification?.approvals.map((approval) => approval.id) ?? []
+      ),
+    [pendingVerification]
+  );
+  const selectableApprovals = useMemo(
+    () =>
+      actionableApprovals.filter(
+        (approval) => !pendingVerificationIds.has(approval.id)
+      ),
+    [actionableApprovals, pendingVerificationIds]
+  );
   const selectedApprovals = useMemo(
-    () => actionableApprovals.filter((approval) => selected.has(approval.id)),
-    [actionableApprovals, selected]
+    () => selectableApprovals.filter((approval) => selected.has(approval.id)),
+    [selectableApprovals, selected]
   );
   const revokeUrl = visibleScan
     ? `https://revoke.cash/address/${visibleScan.address}?chain=base`
@@ -363,28 +387,11 @@ export function SecurityTab() {
     setNotice(null);
   };
 
-  const verifyRevokedApprovals = async (
-    approvals: BaseApprovalItem[],
-    owner: `0x${string}`,
-    blockNumber?: bigint
-  ) => {
-    if (!publicClient) return [];
-    const results = await publicClient.readContract({
-      address: BASE_MULTICALL3_ADDRESS,
-      abi: multicall3Abi,
-      functionName: "aggregate3",
-      args: [createRevokeVerificationBatch(approvals, owner)],
-      ...(blockNumber !== undefined ? { blockNumber } : {}),
-    });
-    return clearedApprovalIdsFromVerificationBatch(approvals, results);
-  };
-
   const confirmRevoke = async () => {
     if (
       actionInFlightRef.current ||
       !confirmation ||
-      !wallet.address ||
-      !publicClient
+      !wallet.address
     ) {
       return;
     }
@@ -422,6 +429,8 @@ export function SecurityTab() {
     setActionPending(true);
     setConfirmation(null);
     setNotice({ kind: "pending", message: "Opening your wallet…" });
+    let submittedTransactionHref: string | undefined;
+    let verificationRetryAvailable = false;
     try {
       if (calls.length === 1) {
         const approval = pendingConfirmation.approvals[0];
@@ -437,7 +446,7 @@ export function SecurityTab() {
                 functionName: "approve",
                 args: [approval.delegate.address, 0n],
                 account: owner,
-                chainId: base.id,
+                chainId: BASE_MAINNET_CHAIN_ID,
                 ...(builderCodeDataSuffix
                   ? { dataSuffix: builderCodeDataSuffix }
                   : {}),
@@ -452,7 +461,7 @@ export function SecurityTab() {
                     BigInt(approval.tokenId!),
                   ],
                   account: owner,
-                  chainId: base.id,
+                  chainId: BASE_MAINNET_CHAIN_ID,
                   ...(builderCodeDataSuffix
                     ? { dataSuffix: builderCodeDataSuffix }
                     : {}),
@@ -463,41 +472,58 @@ export function SecurityTab() {
                   functionName: "setApprovalForAll",
                   args: [approval.delegate.address, false],
                   account: owner,
-                  chainId: base.id,
+                  chainId: BASE_MAINNET_CHAIN_ID,
                   ...(builderCodeDataSuffix
                     ? { dataSuffix: builderCodeDataSuffix }
                     : {}),
                 });
+        submittedTransactionHref = `https://basescan.org/tx/${hash}`;
+        const verificationRequest = createRevokeVerificationRequest(
+          [hash],
+          owner,
+          pendingConfirmation.approvals
+        );
+        setPendingVerification({
+          request: verificationRequest,
+          approvals: pendingConfirmation.approvals,
+          href: submittedTransactionHref,
+        });
+        verificationRetryAvailable = true;
         setNotice({
           kind: "pending",
           message: "Revoke submitted. Waiting for Base confirmation…",
-          href: `https://basescan.org/tx/${hash}`,
+          href: submittedTransactionHref,
         });
-        const receipt = await publicClient.waitForTransactionReceipt({ hash });
-        if (receipt.status !== "success") {
+        const verification = await waitForPrivateRevokeVerification(
+          verificationRequest
+        );
+        if (verification.status === "reverted") {
+          verificationRetryAvailable = false;
+          setPendingVerification(null);
           throw new Error("The revoke transaction reverted.");
         }
-        setNotice({
-          kind: "pending",
-          message: "Confirmed. Verifying the permission is cleared…",
-          href: `https://basescan.org/tx/${hash}`,
-        });
-        const clearedIds = await verifyRevokedApprovals(
-          pendingConfirmation.approvals,
-          owner,
-          receipt.blockNumber
-        );
+        const clearedIds = verification.clearedIds;
         if (clearedIds.length !== submittedIds.length) {
+          if (
+            !verification.approvals.some(
+              (approval) => approval.state === "unverified"
+            )
+          ) {
+            verificationRetryAvailable = false;
+            setPendingVerification(null);
+          }
           throw new Error(
             "The transaction confirmed, but the permission is still active or could not be verified. It was not removed."
           );
         }
         removeApprovals(clearedIds);
+        verificationRetryAvailable = false;
+        setPendingVerification(null);
         setNotice({
           kind: "success",
           message:
             "Approval revoked and confirmed on Base. Results updated without rescanning.",
-          href: `https://basescan.org/tx/${hash}`,
+          href: submittedTransactionHref,
         });
       } else {
         setNotice({
@@ -506,7 +532,7 @@ export function SecurityTab() {
         });
         const result = await sendCalls.sendCallsAsync({
           account: owner,
-          chainId: base.id,
+          chainId: BASE_MAINNET_CHAIN_ID,
           calls: calls.map((call) => ({ to: call.to, data: call.data })),
           forceAtomic: true,
           ...(builderCodeDataSuffix
@@ -531,51 +557,148 @@ export function SecurityTab() {
           timeout: 120_000,
         });
         if (status.status !== "success") throw new Error("The batch revoke failed.");
-        const transactionHash = status.receipts?.[0]?.transactionHash;
+        const transactionHashes = [
+          ...new Set(
+            status.receipts
+              ?.map((receipt) => receipt.transactionHash)
+              .filter((hash): hash is `0x${string}` => Boolean(hash)) ?? []
+          ),
+        ];
+        if (!transactionHashes.length) {
+          throw new Error(
+            "The wallet confirmed the batch, but did not provide a transaction receipt for independent verification. No rows were removed."
+          );
+        }
+        submittedTransactionHref = `https://basescan.org/tx/${transactionHashes[0]}`;
+        const verificationRequest = createRevokeVerificationRequest(
+          transactionHashes,
+          owner,
+          pendingConfirmation.approvals
+        );
+        setPendingVerification({
+          request: verificationRequest,
+          approvals: pendingConfirmation.approvals,
+          href: submittedTransactionHref,
+        });
+        verificationRetryAvailable = true;
         setNotice({
           kind: "pending",
           message: "Batch confirmed. Verifying each permission is cleared…",
-          href: transactionHash
-            ? `https://basescan.org/tx/${transactionHash}`
-            : undefined,
+          href: submittedTransactionHref,
         });
-        const clearedIds = await verifyRevokedApprovals(
-          pendingConfirmation.approvals,
-          owner,
-          status.receipts?.at(-1)?.blockNumber
+        const verification = await waitForPrivateRevokeVerification(
+          verificationRequest
         );
+        if (verification.status === "reverted") {
+          verificationRetryAvailable = false;
+          setPendingVerification(null);
+          throw new Error("The batch revoke transaction reverted.");
+        }
+        const clearedIds = verification.clearedIds;
         if (clearedIds.length) removeApprovals(clearedIds);
         if (clearedIds.length !== submittedIds.length) {
+          if (
+            !verification.approvals.some(
+              (approval) => approval.state === "unverified"
+            )
+          ) {
+            verificationRetryAvailable = false;
+            setPendingVerification(null);
+          }
           throw new Error(
             `${submittedIds.length - clearedIds.length} permission${submittedIds.length - clearedIds.length === 1 ? " is" : "s are"} still active or could not be verified.`
           );
         }
+        verificationRetryAvailable = false;
+        setPendingVerification(null);
         setNotice({
           kind: "success",
           message:
             "Selected approvals were revoked and confirmed on Base. Results updated without rescanning.",
-          href: transactionHash
-            ? `https://basescan.org/tx/${transactionHash}`
-            : undefined,
+          href: submittedTransactionHref,
         });
       }
     } catch (error) {
       setConfirmation(null);
-      setNotice({ kind: "error", message: friendlyActionError(error) });
+      const message = friendlyActionError(error);
+      setNotice({
+        kind: "error",
+        message: verificationRetryAvailable
+          ? `${message} The permission remains visible until private-RPC verification succeeds.`
+          : message,
+        href: submittedTransactionHref,
+      });
     } finally {
       actionInFlightRef.current = false;
       setActionPending(false);
     }
   };
 
-  const actionableApprovalIds = actionableApprovals.map(
+  const retryPendingVerification = async () => {
+    if (!pendingVerification || actionInFlightRef.current) return;
+    const pending = pendingVerification;
+    let retryAvailable = true;
+    actionInFlightRef.current = true;
+    setActionPending(true);
+    setNotice({
+      kind: "pending",
+      message: "Retrying confirmation through the private Base RPC…",
+      href: pending.href,
+    });
+    try {
+      const verification = await waitForPrivateRevokeVerification(
+        pending.request
+      );
+      if (verification.status === "reverted") {
+        retryAvailable = false;
+        setPendingVerification(null);
+        throw new Error("The revoke transaction reverted.");
+      }
+
+      if (verification.clearedIds.length) {
+        removeApprovals(verification.clearedIds);
+      }
+      if (verification.clearedIds.length !== pending.approvals.length) {
+        retryAvailable = verification.approvals.some(
+          (approval) => approval.state === "unverified"
+        );
+        if (!retryAvailable) setPendingVerification(null);
+        throw new Error(
+          `${pending.approvals.length - verification.clearedIds.length} permission${pending.approvals.length - verification.clearedIds.length === 1 ? " is" : "s are"} still active or could not be verified.`
+        );
+      }
+
+      retryAvailable = false;
+      setPendingVerification(null);
+      setNotice({
+        kind: "success",
+        message:
+          "Approval state confirmed through the private Base RPC. Results updated without rescanning.",
+        href: pending.href,
+      });
+    } catch (error) {
+      const message = friendlyActionError(error);
+      setNotice({
+        kind: "error",
+        message: retryAvailable
+          ? `${message} No transaction was resent; you can retry verification safely.`
+          : message,
+        href: pending.href,
+      });
+    } finally {
+      actionInFlightRef.current = false;
+      setActionPending(false);
+    }
+  };
+
+  const actionableApprovalIds = selectableApprovals.map(
     (approval) => approval.id
   );
   const allActionableSelected = areAllApprovalIdsSelected(
     actionableApprovalIds,
     selected
   );
-  const busy = actionPending || loading;
+  const busy = actionPending || loading || Boolean(pendingVerification);
   const canRevokeSelected = canRevokeSelectedApprovals({
     batchSupported,
     busy,
@@ -605,9 +728,13 @@ export function SecurityTab() {
                 clearForInputChange(nextValue);
                 setApprovalAddress(nextValue);
               }}
-              disabled={actionPending}
+              disabled={actionPending || Boolean(pendingVerification)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !loading) {
+                if (
+                  event.key === "Enter" &&
+                  !loading &&
+                  !pendingVerification
+                ) {
                   void runScan(Boolean(visibleScan));
                 }
               }}
@@ -615,7 +742,7 @@ export function SecurityTab() {
             <button
               type="button"
               onClick={() => void runScan(Boolean(visibleScan))}
-              disabled={loading || actionPending}
+              disabled={loading || actionPending || Boolean(pendingVerification)}
               className="btn btn-primary"
             >
               {loading
@@ -691,7 +818,7 @@ export function SecurityTab() {
                     approval={approval}
                     checked={selected.has(approval.id)}
                     canAct={canManageApprovals}
-                    busy={busy}
+                    busy={busy || pendingVerificationIds.has(approval.id)}
                     onChecked={(checked) =>
                       setSelected((current) => {
                         const next = new Set(current);
@@ -705,7 +832,7 @@ export function SecurityTab() {
                 ))}
               </div>
 
-              {actionableApprovals.length > 0 && canManageApprovals && (
+              {selectableApprovals.length > 0 && canManageApprovals && (
                 <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/10 pt-3">
                   <button
                     type="button"
@@ -782,6 +909,12 @@ export function SecurityTab() {
           <ActionNoticeToast
             notice={notice}
             onDismiss={() => setNotice(null)}
+            onAction={
+              pendingVerification && notice.kind === "error"
+                ? () => void retryPendingVerification()
+                : undefined
+            }
+            actionLabel="Retry verification"
           />,
           document.body
         )}
@@ -802,10 +935,14 @@ export function SecurityTab() {
 }
 
 function ActionNoticeToast({
+  actionLabel,
   notice,
+  onAction,
   onDismiss,
 }: {
+  actionLabel?: string;
   notice: ActionNotice;
+  onAction?: () => void;
   onDismiss: () => void;
 }) {
   return (
@@ -837,7 +974,16 @@ function ActionNoticeToast({
             </a>
           )}
         </p>
-        {notice.kind !== "pending" && (
+        {onAction && actionLabel && (
+          <button
+            type="button"
+            className="btn btn-ghost shrink-0 text-[10px]"
+            onClick={onAction}
+          >
+            {actionLabel}
+          </button>
+        )}
+        {notice.kind !== "pending" && !onAction && (
           <button
             type="button"
             className="-my-1 shrink-0 rounded-lg px-2 py-1 text-white/55 hover:bg-white/10 hover:text-white"

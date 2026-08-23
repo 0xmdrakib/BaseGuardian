@@ -87,6 +87,22 @@ describe("API protection", () => {
     expect(response?.headers.get("RateLimit-Limit")).toBe("6");
   });
 
+  it("allows balanced transaction-status polling without opening a spam path", () => {
+    for (let index = 0; index < 20; index += 1) {
+      expect(
+        protectBaseApi(
+          request(`203.0.113.${index + 30}`),
+          "revoke-status"
+        )
+      ).toBeNull();
+    }
+
+    for (let index = 0; index < 20; index += 1) {
+      expect(protectBaseApi(request(), "revoke-status")).toBeNull();
+    }
+    expect(protectBaseApi(request(), "revoke-status")?.status).toBe(429);
+  });
+
   it("applies the aggregate minute quota across endpoints", () => {
     for (let index = 0; index < 30; index += 1) {
       const category = index % 2 === 0 ? "token-info" : "nft";

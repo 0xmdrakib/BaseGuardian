@@ -2,6 +2,7 @@ import {
   getAlchemyPricesUrl,
   requireAlchemyBaseConfig,
 } from "@/lib/alchemyConfig";
+import { safeServerError } from "@/lib/safeServerError";
 
 type AlchemyError = {
   code: number;
@@ -167,11 +168,7 @@ async function fetchPricesByAddress(
   });
 
   if (!res.ok) {
-    console.error(
-      "Alchemy Prices error",
-      res.status,
-      await res.text()
-    );
+    console.error("Alchemy Prices error", { status: res.status });
     return {};
   }
 
@@ -460,7 +457,7 @@ async function fetchDexscreenerBasePairs(
 
     return pairs.length > 0 ? pairs : null;
   } catch (err) {
-    console.error("Error calling DexScreener:", err);
+    console.error("Error calling DexScreener", safeServerError(err));
     return null;
   }
 }

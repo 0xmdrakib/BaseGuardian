@@ -9,6 +9,7 @@ import {
 import { protectBaseApi } from "@/lib/apiProtection";
 import { errorJson, publicJson } from "@/lib/apiResponses";
 import { validateWalletAddressOrName } from "@/lib/apiValidation";
+import { safeServerError } from "@/lib/safeServerError";
 
 export const maxDuration = 60;
 
@@ -81,7 +82,7 @@ export async function GET(request: NextRequest) {
     if (error instanceof BaseNameResolutionError) {
       return errorJson(error.message, error.status);
     }
-    console.error("Error scanning Base approvals", error);
+    console.error("Error scanning Base approvals", safeServerError(error));
     const message = error instanceof Error ? error.message.toLowerCase() : "";
     if (
       message.includes("429") ||

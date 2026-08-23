@@ -6,6 +6,7 @@ import {
 import { protectBaseApi } from "@/lib/apiProtection";
 import { errorJson, publicJson } from "@/lib/apiResponses";
 import { validateEvmAddress } from "@/lib/apiValidation";
+import { safeServerError } from "@/lib/safeServerError";
 
 type TokenScanResponse = {
   address: string;
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
 
     return publicJson(payload, 120);
   } catch (err: unknown) {
-    console.error("Error in Base token scan", err);
+    console.error("Error in Base token scan", safeServerError(err));
     return errorJson("Failed to scan Base tokens", 500);
   }
 }

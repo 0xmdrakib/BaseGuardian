@@ -12,11 +12,14 @@ import {
   useAccount,
   useConnect,
   useDisconnect,
-  useSwitchChain,
   type Connector,
 } from "wagmi";
-import { base } from "wagmi/chains";
 import { WalletPickerModal } from "@/components/wallet/WalletPickerModal";
+import { BASE_MAINNET_CHAIN_ID } from "@/lib/baseChain";
+import {
+  requestBaseWalletSwitch,
+  walletChainIsMissing,
+} from "@/lib/walletNetwork";
 
 type WalletContextValue = {
   address?: `0x${string}`;
@@ -58,30 +61,33 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const account = useAccount();
   const { connectors, connectAsync, isPending: connectPending } = useConnect();
   const { disconnectAsync } = useDisconnect();
-  const { switchChainAsync, isPending: switchPending } = useSwitchChain();
   const [walletPickerOpen, setWalletPickerOpen] = useState(false);
   const [pendingConnectorUid, setPendingConnectorUid] = useState<string | null>(
     null
   );
   const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isSwitching, setIsSwitching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const switchToBase = useCallback(async () => {
     setError(null);
+    setIsSwitching(true);
     try {
-      await switchChainAsync({
-        chainId: base.id,
-        connector: account.connector,
-      });
+      if (!account.connector) throw new Error("No connected wallet is available.");
+      await requestBaseWalletSwitch(account.connector);
     } catch (cause) {
       setError(
-        friendlyWalletError(
-          cause,
-          "Wallet connected, but it could not switch to Base. Try again from the wallet button."
-        )
+        walletChainIsMissing(cause)
+          ? "Base Mainnet is not configured in this wallet. Add Base in the wallet, then try again."
+          : friendlyWalletError(
+              cause,
+              "Wallet connected, but it could not switch to Base. Try again from the wallet button."
+            )
       );
+    } finally {
+      setIsSwitching(false);
     }
-  }, [account.connector, switchChainAsync]);
+  }, [account.connector]);
 
   const connectWallet = useCallback(
     async (connector: Connector) => {
@@ -92,16 +98,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         const result = await connectAsync({ connector });
         setWalletPickerOpen(false);
 
-        if (result.chainId !== base.id) {
+        if (result.chainId !== BASE_MAINNET_CHAIN_ID) {
+          setIsSwitching(true);
           try {
-            await switchChainAsync({ chainId: base.id, connector });
+            await requestBaseWalletSwitch(connector);
           } catch (cause) {
             setError(
-              friendlyWalletError(
-                cause,
-                "Wallet connected. Switch to Base before making Base transactions."
-              )
+              walletChainIsMissing(cause)
+                ? "Wallet connected, but Base Mainnet is not configured. Add Base in the wallet before making transactions."
+                : friendlyWalletError(
+                    cause,
+                    "Wallet connected. Switch to Base before making Base transactions."
+                  )
             );
+          } finally {
+            setIsSwitching(false);
           }
         }
       } catch (cause) {
@@ -110,7 +121,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setPendingConnectorUid(null);
       }
     },
-    [connectAsync, switchChainAsync]
+    [connectAsync]
   );
 
   const disconnect = useCallback(async () => {
@@ -140,9 +151,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       connector: account.connector,
       connectors,
       error,
-      isBase: account.chainId === base.id,
+      isBase: account.chainId === BASE_MAINNET_CHAIN_ID,
       isConnected: account.isConnected,
-      isConnecting: connectPending || switchPending,
+      isConnecting: connectPending || isSwitching,
       isDisconnecting,
       isReconnecting: account.isReconnecting,
       clearError: () => setError(null),
@@ -162,7 +173,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       error,
       isDisconnecting,
       openWalletPicker,
-      switchPending,
+      isSwitching,
       switchToBase,
     ]
   );

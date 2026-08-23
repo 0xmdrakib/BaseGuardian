@@ -3,6 +3,7 @@ import { getBaseSingleTokenInfo } from "@/lib/alchemyTokens";
 import { protectBaseApi } from "@/lib/apiProtection";
 import { errorJson, publicJson } from "@/lib/apiResponses";
 import { validateEvmAddress } from "@/lib/apiValidation";
+import { safeServerError } from "@/lib/safeServerError";
 
 export async function GET(req: NextRequest) {
   const denied = await protectBaseApi(req, "token-info");
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
 
     return publicJson(info, 180);
   } catch (err: unknown) {
-    console.error("Error in Base single token info", err);
+    console.error("Error in Base single token info", safeServerError(err));
     return errorJson("Failed to fetch Base token info", 500);
   }
 }
