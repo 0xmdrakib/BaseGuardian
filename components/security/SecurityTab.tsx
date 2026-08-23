@@ -143,7 +143,7 @@ export function SecurityTab() {
       : "https://revoke.cash/?chain=base";
 
   const runScan = useCallback(
-    async () => {
+    async (force = false) => {
       const trimmed = approvalAddress.trim();
       const normalizedInput = trimmed.toLowerCase();
       const isSameQuery = scanFor === normalizedInput;
@@ -161,6 +161,7 @@ export function SecurityTab() {
       const cached = readCachedApprovalScan(normalizedInput);
       if (cached) setScan(cached.scan);
       if (
+        !force &&
         cached?.scan.coverage.status === "complete" &&
         Date.now() - cached.savedAt <= APPROVAL_CACHE_FRESH_MS
       ) {
@@ -170,7 +171,7 @@ export function SecurityTab() {
       setLoading(true);
       try {
         const response = await fetch(
-          `/api/base/approvals?address=${encodeURIComponent(trimmed)}`
+          `/api/base/approvals?address=${encodeURIComponent(trimmed)}${force ? "&fresh=1" : ""}`
         );
         const body = (await response.json()) as BaseApprovalScan & {
           error?: string;
@@ -403,16 +404,24 @@ export function SecurityTab() {
               }}
               disabled={actionPending}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && !loading) void runScan();
+                if (event.key === "Enter" && !loading) {
+                  void runScan(Boolean(visibleScan));
+                }
               }}
             />
             <button
               type="button"
-              onClick={() => void runScan()}
+              onClick={() => void runScan(Boolean(visibleScan))}
               disabled={loading || actionPending}
               className="btn btn-primary"
             >
-              {loading ? "Scanning…" : "Scan approvals"}
+              {loading
+                ? visibleScan
+                  ? "Refreshing…"
+                  : "Scanning…"
+                : visibleScan
+                  ? "Refresh scan"
+                  : "Scan approvals"}
             </button>
           </div>
 
