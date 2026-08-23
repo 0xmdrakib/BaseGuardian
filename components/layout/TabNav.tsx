@@ -10,8 +10,8 @@ type TabNavProps = {
 export function TabNav({ activeTab, onChange }: TabNavProps) {
   const tabs: { id: TabId; label: string }[] = [
     { id: "overview", label: "Overview" },
-    { id: "scanner", label: "Scanner" },
     { id: "security", label: "Security" },
+    { id: "scanner", label: "Scanner" },
   ];
 
   return (
