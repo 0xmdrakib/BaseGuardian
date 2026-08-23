@@ -104,11 +104,12 @@ const MAX_VERIFIED_CANDIDATES = 250;
 const HISTORY_PAGE_SIZE = 50;
 const DEFAULT_MAX_HISTORY_PAGES = 200;
 const DEFAULT_MAX_TRANSFER_PAGES = 100;
-const MAX_TRANSFER_RECEIPTS = 250;
+const MAX_TRANSFER_RECEIPTS = 1_000;
+const TRANSFER_PAGE_SIZE = 1_000;
 const RPC_BATCH_SIZE = 10;
 const RPC_BATCH_RETRIES = 3;
 const RPC_BATCH_CONCURRENCY = 1;
-const RPC_BATCH_GAP_MS = 300;
+const RPC_BATCH_GAP_MS = 200;
 const MULTICALL3_ADDRESS = getAddress(
   "0xcA11bde05977b3631167028862bE2a173976CA11"
 );
@@ -116,6 +117,10 @@ const MULTICALL_CHUNK_SIZE = 80;
 
 function remainingMs(deadlineAt: number) {
   return Math.max(0, deadlineAt - Date.now());
+}
+
+export function isEip7702DelegationCode(code: string) {
+  return /^0xef0100[0-9a-f]{40}$/i.test(code);
 }
 
 type HistoryLog = {
@@ -135,7 +140,12 @@ type HistoryTransaction = {
 type HistoryResponse = {
   after?: string | null;
   pageKey?: string | null;
+  totalCount?: number;
   transactions?: HistoryTransaction[];
+};
+
+type ValidHistoryResponse = HistoryResponse & {
+  transactions: HistoryTransaction[];
 };
 
 type AssetTransfer = {
@@ -226,6 +236,91 @@ function approvalLogsFromHistoryPage(
   return logs;
 }
 
+function historyRetryDelayMs(response: Response | null, attempt: number) {
+  const retryAfter = response?.headers.get("Retry-After")?.trim();
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.min(5_000, Math.max(100, Math.ceil(seconds * 1_000)));
+    }
+    const retryAt = Date.parse(retryAfter);
+    if (Number.isFinite(retryAt)) {
+      return Math.min(5_000, Math.max(100, retryAt - Date.now()));
+    }
+  }
+  return 300 * 2 ** attempt;
+}
+
+async function waitWithinDeadline(delayMs: number, deadlineAt: number) {
+  const delay = Math.min(delayMs, remainingMs(deadlineAt));
+  if (delay > 0) {
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+}
+
+async function fetchHistoryPageWithRetry(
+  historyUrl: string,
+  body: Record<string, unknown>,
+  timeoutMs: number,
+  deadlineAt: number
+): Promise<ValidHistoryResponse> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < RPC_BATCH_RETRIES; attempt += 1) {
+    const remaining = remainingMs(deadlineAt);
+    if (remaining <= 0) break;
+
+    try {
+      const response = await fetch(historyUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        cache: "no-store",
+        signal: AbortSignal.timeout(Math.min(timeoutMs, remaining)),
+      });
+      if (!response.ok) {
+        const error = new Error(
+          `Alchemy history returned HTTP ${response.status}.`
+        );
+        lastError = error;
+        const retryable =
+          response.status === 429 ||
+          response.status === 500 ||
+          response.status === 502 ||
+          response.status === 503 ||
+          response.status === 504;
+        if (retryable && attempt + 1 < RPC_BATCH_RETRIES) {
+          await waitWithinDeadline(
+            historyRetryDelayMs(response, attempt),
+            deadlineAt
+          );
+          continue;
+        }
+        throw error;
+      }
+
+      const parsed = (await response.json()) as HistoryResponse;
+      if (!Array.isArray(parsed.transactions)) {
+        throw new Error("Alchemy history returned an invalid response.");
+      }
+      return parsed as ValidHistoryResponse;
+    } catch (error) {
+      lastError = error;
+      if (
+        !isTransientRpcError(error) ||
+        attempt + 1 >= RPC_BATCH_RETRIES ||
+        remainingMs(deadlineAt) <= 0
+      ) {
+        break;
+      }
+      await waitWithinDeadline(historyRetryDelayMs(null, attempt), deadlineAt);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Alchemy history exceeded the scan deadline.");
+}
+
 /**
  * Uses Alchemy's address index instead of walking every Base block. The same
  * API key embedded in ALCHEMY_BASE_RPC_URL authenticates this endpoint.
@@ -247,33 +342,43 @@ export async function fetchApprovalLogsFromAlchemyHistory(
   const ownerTopic = pad(owner, { size: 32 });
   const logs: RpcLog[] = [];
   const seenCursors = new Set<string>();
+  const seenTransactions = new Set<string>();
   let after: string | undefined;
   let pages = 0;
   let complete = false;
+  let reportedTotalCount: number | null = null;
 
   while (pages < maxPages && Date.now() < deadlineAt) {
-    const response = await fetch(historyUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        addresses: [{ address: owner, networks: ["base-mainnet"] }],
-        limit: HISTORY_PAGE_SIZE,
-        ...(after ? { after } : {}),
-      }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(
-        Math.min(timeoutMs, Math.max(1, deadlineAt - Date.now()))
-      ),
-    });
-    if (!response.ok) {
-      throw new Error(`Alchemy history returned HTTP ${response.status}.`);
-    }
-    const body = (await response.json()) as HistoryResponse;
-    if (!Array.isArray(body.transactions)) {
-      throw new Error("Alchemy history returned an invalid response.");
+    let body: ValidHistoryResponse;
+    try {
+      body = await fetchHistoryPageWithRetry(
+        historyUrl,
+        {
+          addresses: [{ address: owner, networks: ["base-mainnet"] }],
+          limit: HISTORY_PAGE_SIZE,
+          ...(after ? { after } : {}),
+        },
+        timeoutMs,
+        deadlineAt
+      );
+    } catch (error) {
+      if (pages === 0) throw error;
+      break;
     }
 
     pages += 1;
+    if (
+      typeof body.totalCount === "number" &&
+      Number.isSafeInteger(body.totalCount) &&
+      body.totalCount >= 0
+    ) {
+      reportedTotalCount = Math.max(reportedTotalCount ?? 0, body.totalCount);
+    }
+    for (const transaction of body.transactions) {
+      if (typeof transaction.hash === "string") {
+        seenTransactions.add(transaction.hash.toLowerCase());
+      }
+    }
     logs.push(
       ...approvalLogsFromHistoryPage(
         body.transactions,
@@ -284,9 +389,12 @@ export async function fetchApprovalLogsFromAlchemyHistory(
 
     const next = body.after ?? body.pageKey ?? undefined;
     if (!next) {
-      complete = true;
+      complete =
+        reportedTotalCount === null ||
+        seenTransactions.size >= reportedTotalCount;
       break;
     }
+    if (typeof next !== "string" || next.length > 4_096) break;
     if (seenCursors.has(next)) break;
     seenCursors.add(next);
     after = next;
@@ -333,12 +441,16 @@ export async function fetchApprovalLogsFromAlchemyTransfers(
           fromBlock: "0x0",
           toBlock: toHexBlock(snapshotBlock),
           fromAddress: owner,
+          // For EOAs (including EIP-7702 delegated EOAs), direct owner-origin
+          // approvals are in external transaction receipts. Mixing token
+          // transfers into this supplemental stream lets high-volume wallets
+          // exhaust the receipt budget before older approve calls are reached.
           category: options.ownerIsContract
             ? ["internal", "erc20", "erc721", "erc1155"]
-            : ["external", "erc20", "erc721", "erc1155"],
+            : ["external"],
           excludeZeroValue: false,
           order: "desc",
-          maxCount: "0xfa",
+          maxCount: `0x${TRANSFER_PAGE_SIZE.toString(16)}`,
           ...(pageKey ? { pageKey } : {}),
         },
       ],
@@ -550,10 +662,12 @@ function isTransientRpcError(error: unknown) {
     message.includes("429") ||
     message.includes("rate") ||
     message.includes("capacity") ||
+    message.includes("500") ||
     message.includes("502") ||
     message.includes("503") ||
     message.includes("504") ||
     message.includes("timeout") ||
+    message.includes("aborted") ||
     message.includes("fetch failed")
   );
 }
@@ -1215,61 +1329,142 @@ export async function getBaseApprovalScan(
     timeoutMs,
     scanDeadlineAt
   );
-  const ownerIsContract = ownerCode !== "0x" && ownerCode !== "0x0";
+  const ownerUsesDelegation = isEip7702DelegationCode(ownerCode);
+  const ownerIsContract =
+    ownerCode !== "0x" && ownerCode !== "0x0" && !ownerUsesDelegation;
   let discovery: { complete: boolean; logs: RpcLog[] };
   const historyUrl =
     options.historyUrl ??
     (configured ? getAlchemyTransactionHistoryUrl(configured) : null);
   if (historyUrl) {
-    let indexedLogs: RpcLog[] = [];
-    let indexedComplete = false;
-    const historyDeadlineAt = Math.min(
+    // A single full-range owner-topic query is the only stateless path that
+    // can prove event-complete coverage (for example on an Alchemy PAYG key).
+    // Free-tier Base rejects this range immediately; do not recursively split
+    // millions of blocks after that rejection.
+    let exhaustiveLogs: RpcLog[] = [];
+    let exhaustiveComplete = false;
+    const exhaustiveDeadlineAt = Math.min(
       discoveryDeadlineAt,
-      Date.now() + Math.min(10_000, remainingMs(discoveryDeadlineAt))
+      Date.now() + 4_000
     );
     try {
-      const indexed = await fetchApprovalLogsFromAlchemyHistory(
-        historyUrl,
-        owner,
-        snapshotBlock,
-        { ...options, deadlineAt: historyDeadlineAt }
-      );
-      indexedLogs = indexed.logs;
-      indexedComplete = indexed.complete;
-    } catch (error) {
-      console.error("Alchemy address-history approval discovery failed.", error);
-    }
-
-    try {
-      const transfers = await fetchApprovalLogsFromAlchemyTransfers(
+      const exhaustive = await fetchApprovalLogsAdaptive(
         rpcUrl,
         owner,
         snapshotBlock,
-        { ...options, deadlineAt: discoveryDeadlineAt, ownerIsContract }
+        {
+          ...options,
+          deadlineAt: exhaustiveDeadlineAt,
+          maxLogRequests: 1,
+          requestTimeoutMs: Math.min(timeoutMs, 4_000),
+        }
       );
-      discovery = {
-        complete: indexedComplete && transfers.complete,
-        logs: [...indexedLogs, ...transfers.logs],
-      };
+      exhaustiveLogs = exhaustive.logs;
+      exhaustiveComplete = exhaustive.complete;
     } catch (error) {
-      console.error(
-        "Alchemy transfer-receipt approval discovery failed.",
-        error
-      );
-      if (Date.now() < discoveryDeadlineAt) {
-        const fallback = await fetchApprovalLogsAdaptive(
+      console.error("Full-range approval discovery failed.", error);
+    }
+
+    if (exhaustiveComplete) {
+      discovery = { complete: true, logs: exhaustiveLogs };
+    } else if (!ownerIsContract) {
+      // Plain and EIP-7702 EOAs: enumerate only direct external transactions.
+      // Token-transfer categories are intentionally separate; mixing them can
+      // crowd old approve calls out of a newest-first receipt budget.
+      let transferLogs: RpcLog[] = [];
+      let transferComplete = false;
+      try {
+        const transfers = await fetchApprovalLogsFromAlchemyTransfers(
           rpcUrl,
           owner,
           snapshotBlock,
-          { ...options, deadlineAt: discoveryDeadlineAt }
+          {
+            ...options,
+            deadlineAt: discoveryDeadlineAt,
+            ownerIsContract: false,
+          }
         );
-        discovery = {
-          complete: fallback.complete,
-          logs: [...indexedLogs, ...fallback.logs],
-        };
-      } else {
-        discovery = { complete: false, logs: indexedLogs };
+        transferLogs = transfers.logs;
+        transferComplete = transfers.complete;
+      } catch (error) {
+        console.error(
+          "Alchemy external-receipt approval discovery failed.",
+          error
+        );
       }
+
+      let indexedLogs: RpcLog[] = [];
+      if (!transferComplete && remainingMs(discoveryDeadlineAt) > 1_000) {
+        try {
+          const indexed = await fetchApprovalLogsFromAlchemyHistory(
+            historyUrl,
+            owner,
+            snapshotBlock,
+            { ...options, deadlineAt: discoveryDeadlineAt }
+          );
+          indexedLogs = indexed.logs;
+        } catch (error) {
+          console.error(
+            "Alchemy address-history approval discovery failed.",
+            error
+          );
+        }
+      }
+
+      discovery = {
+        // Accelerators expose useful candidates, but only the full owner-topic
+        // query above can prove complete Approval-event coverage.
+        complete: false,
+        logs: [...exhaustiveLogs, ...transferLogs, ...indexedLogs],
+      };
+    } else {
+      let indexedLogs: RpcLog[] = [];
+      let indexedComplete = false;
+      const historyDeadlineAt = Math.min(
+        discoveryDeadlineAt,
+        Date.now() + Math.min(20_000, remainingMs(discoveryDeadlineAt))
+      );
+      try {
+        const indexed = await fetchApprovalLogsFromAlchemyHistory(
+          historyUrl,
+          owner,
+          snapshotBlock,
+          { ...options, deadlineAt: historyDeadlineAt }
+        );
+        indexedLogs = indexed.logs;
+        indexedComplete = indexed.complete;
+      } catch (error) {
+        console.error(
+          "Alchemy address-history approval discovery failed.",
+          error
+        );
+      }
+
+      let transferLogs: RpcLog[] = [];
+      if (!indexedComplete && remainingMs(discoveryDeadlineAt) > 1_000) {
+        try {
+          const transfers = await fetchApprovalLogsFromAlchemyTransfers(
+            rpcUrl,
+            owner,
+            snapshotBlock,
+            {
+              ...options,
+              deadlineAt: discoveryDeadlineAt,
+              ownerIsContract: true,
+            }
+          );
+          transferLogs = transfers.logs;
+        } catch (error) {
+          console.error(
+            "Alchemy contract-activity approval discovery failed.",
+            error
+          );
+        }
+      }
+      discovery = {
+        complete: false,
+        logs: [...exhaustiveLogs, ...indexedLogs, ...transferLogs],
+      };
     }
   } else {
     discovery = await fetchApprovalLogsAdaptive(

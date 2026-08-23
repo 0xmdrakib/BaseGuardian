@@ -1,6 +1,7 @@
 import type { BaseApprovalItem, BaseApprovalScan } from "@/lib/approvalTypes";
 
-export const APPROVAL_SCAN_CACHE_VERSION = 1;
+// Invalidate scans created by the former newest-250 transaction discovery.
+export const APPROVAL_SCAN_CACHE_VERSION = 2;
 export const APPROVAL_SCAN_CACHE_MAX_AGE_MS = 10 * 60_000;
 
 export type ApprovalScanRequestState = {

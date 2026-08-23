@@ -17,6 +17,7 @@ import {
   decodeApprovalLog,
   fetchApprovalLogsFromAlchemyHistory,
   fetchApprovalLogsFromAlchemyTransfers,
+  isEip7702DelegationCode,
   fetchApprovalLogsAdaptive,
   reduceApprovalCandidates,
   verifyApprovalCandidates,
@@ -124,6 +125,20 @@ describe("approval log decoding", () => {
 });
 
 describe("adaptive approval history", () => {
+  it("recognizes only an exact EIP-7702 delegation indicator", () => {
+    expect(
+      isEip7702DelegationCode(
+        "0xef01007702cb554e6bfb442cb743a7df23154544a7176c"
+      )
+    ).toBe(true);
+    expect(isEip7702DelegationCode("0x")).toBe(false);
+    expect(
+      isEip7702DelegationCode(
+        "0x60007702cb554e6bfb442cb743a7df23154544a7176c"
+      )
+    ).toBe(false);
+  });
+
   it("discovers zero-value approval calls through transfers and receipts", async () => {
     let calls = 0;
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
@@ -132,10 +147,10 @@ describe("adaptive approval history", () => {
       if (calls === 1) {
         expect(body.method).toBe("alchemy_getAssetTransfers");
         expect(body.params[0]).toMatchObject({
-          category: ["external", "erc20", "erc721", "erc1155"],
+          category: ["external"],
           fromAddress: owner,
           excludeZeroValue: false,
-          maxCount: "0xfa",
+          maxCount: "0x3e8",
           order: "desc",
         });
         return new Response(
@@ -173,6 +188,62 @@ describe("adaptive approval history", () => {
     expect(result.logs).toHaveLength(1);
   });
 
+  it("keeps approval receipts older than the former 250-transaction cap", async () => {
+    vi.useFakeTimers();
+    const transfers = Array.from({ length: 363 }, (_, index) => ({
+      hash: `0x${(index + 1).toString(16).padStart(64, "0")}`,
+      blockNum: toHex(1_000 - index),
+    }));
+
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body));
+      if (!Array.isArray(body)) {
+        expect(body.params[0].category).toEqual(["external"]);
+        expect(body.params[0].maxCount).toBe("0x3e8");
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { transfers },
+          })
+        );
+      }
+
+      return new Response(
+        JSON.stringify(
+          body.map((request: { id: number; params: [Hex] }) => ({
+            jsonrpc: "2.0",
+            id: request.id,
+            result: {
+              logs:
+                request.id === 301
+                  ? [
+                      log({
+                        blockNumber: toHex(700),
+                        transactionHash: request.params[0],
+                      }),
+                    ]
+                  : [],
+            },
+          }))
+        )
+      );
+    });
+
+    const pending = fetchApprovalLogsFromAlchemyTransfers(
+      "https://example.invalid",
+      owner,
+      1_000,
+      { deadlineMs: 10_000, requestTimeoutMs: 1_000 }
+    );
+    await vi.runAllTimersAsync();
+    const result = await pending;
+
+    expect(result).toMatchObject({ complete: true, pages: 1, receipts: 363 });
+    expect(result.logs).toHaveLength(1);
+    expect(result.logs[0].transactionHash).toBe(transfers[300].hash);
+  });
+
   it("uses contract activity categories for smart-account owners", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
       const body = JSON.parse(String(init?.body));
@@ -204,9 +275,34 @@ describe("adaptive approval history", () => {
     expect(result).toMatchObject({ complete: true, pages: 1, receipts: 0 });
   });
 
+  it("keeps delegated EOAs on the external-only fast path", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.params[0].category).toEqual(["external"]);
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: { transfers: [] },
+        })
+      );
+    });
+
+    const result = await fetchApprovalLogsFromAlchemyTransfers(
+      "https://example.invalid",
+      owner,
+      100,
+      {
+        deadlineMs: 5_000,
+        requestTimeoutMs: 1_000,
+      }
+    );
+    expect(result).toMatchObject({ complete: true, pages: 1, receipts: 0 });
+  });
+
   it("stops receipt batches at the shared deadline and reports partial", async () => {
     vi.useFakeTimers();
-    const transfers = Array.from({ length: 250 }, (_, index) => ({
+    const transfers = Array.from({ length: 1_000 }, (_, index) => ({
       hash: `0x${(index + 1).toString(16).padStart(64, "0")}`,
       blockNum: toHex(1_000 - index),
     }));
@@ -245,7 +341,7 @@ describe("adaptive approval history", () => {
 
     expect(result.complete).toBe(false);
     expect(result.pages).toBe(1);
-    expect(result.receipts).toBe(250);
+    expect(result.receipts).toBe(1_000);
     expect(fetchMock.mock.calls.length).toBeLessThan(10);
   });
 
@@ -338,6 +434,104 @@ describe("adaptive approval history", () => {
     );
     expect(result.complete).toBe(false);
     expect(result.pages).toBe(1);
+  });
+
+  it("preserves earlier history logs when a later page stays throttled", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(
+          JSON.stringify({
+            after: "next-page",
+            transactions: [
+              {
+                hash: txHash,
+                blockNumber: 10,
+                logs: [
+                  {
+                    contractAddress: token,
+                    logIndex: 1,
+                    data: toHex(25n, { size: 32 }),
+                    topics: [APPROVAL_TOPIC, topic(owner), topic(delegate)],
+                  },
+                ],
+              },
+            ],
+          })
+        );
+      }
+      return new Response("busy", { status: 429 });
+    });
+
+    const pending = fetchApprovalLogsFromAlchemyHistory(
+      "https://example.invalid/history",
+      owner,
+      100,
+      { deadlineMs: 5_000, requestTimeoutMs: 1_000 }
+    );
+    await vi.runAllTimersAsync();
+    const result = await pending;
+
+    expect(result.complete).toBe(false);
+    expect(result.pages).toBe(1);
+    expect(result.logs).toHaveLength(1);
+    expect(calls).toBe(4);
+  });
+
+  it("retries a throttled first history page", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response("busy", {
+          status: 429,
+          headers: { "Retry-After": "0" },
+        });
+      }
+      return new Response(JSON.stringify({ transactions: [] }));
+    });
+
+    const pending = fetchApprovalLogsFromAlchemyHistory(
+      "https://example.invalid/history",
+      owner,
+      100,
+      { deadlineMs: 5_000, requestTimeoutMs: 1_000 }
+    );
+    await vi.runAllTimersAsync();
+    const result = await pending;
+
+    expect(result.complete).toBe(true);
+    expect(result.pages).toBe(1);
+    expect(calls).toBe(2);
+  });
+
+  it("does not claim complete when history totalCount is truncated", async () => {
+    let calls = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      calls += 1;
+      return calls === 1
+        ? new Response(
+            JSON.stringify({
+              totalCount: 2,
+              after: "next-page",
+              transactions: [{ hash: txHash, blockNumber: 10, logs: [] }],
+            })
+          )
+        : new Response(JSON.stringify({ transactions: [] }));
+    });
+
+    const result = await fetchApprovalLogsFromAlchemyHistory(
+      "https://example.invalid/history",
+      owner,
+      100,
+      { deadlineMs: 5_000, requestTimeoutMs: 1_000 }
+    );
+
+    expect(result.complete).toBe(false);
+    expect(result.pages).toBe(2);
   });
 
   it("splits a range when the provider response reaches the log cap", async () => {

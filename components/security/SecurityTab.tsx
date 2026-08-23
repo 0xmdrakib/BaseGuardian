@@ -51,7 +51,7 @@ type ActionNotice = {
   href?: string;
 };
 
-const APPROVAL_CACHE_PREFIX = "baseguardian:approval-scan:v1:";
+const APPROVAL_CACHE_PREFIX = "baseguardian:approval-scan:v2:";
 const APPROVAL_SCAN_TIMEOUT_MS = 55_000;
 
 function readCachedApprovalScan(input: string) {
@@ -206,7 +206,7 @@ export function SecurityTab() {
   );
 
   const runScan = useCallback(
-    async () => {
+    async (forceFresh = false) => {
       const trimmed = approvalAddress.trim();
       const normalizedInput = normalizeApprovalScanQuery(trimmed);
       setSelected(new Set());
@@ -231,7 +231,7 @@ export function SecurityTab() {
       }
 
       const cached = readCachedApprovalScan(normalizedInput);
-      const requiresFresh = cached?.requiresFresh === true;
+      const requiresFresh = forceFresh || cached?.requiresFresh === true;
       const requestId = ++requestSequenceRef.current;
       const controller = new AbortController();
       activeScanRef.current = { controller, query: normalizedInput, requestId };
@@ -526,13 +526,13 @@ export function SecurityTab() {
               disabled={actionPending}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !loading) {
-                  void runScan();
+                  void runScan(Boolean(visibleScan));
                 }
               }}
             />
             <button
               type="button"
-              onClick={() => void runScan()}
+              onClick={() => void runScan(Boolean(visibleScan))}
               disabled={loading || actionPending}
               className="btn btn-primary"
             >
@@ -736,16 +736,32 @@ export function SecurityTab() {
 }
 
 function ApprovalSummary({ scan }: { scan: BaseApprovalScan }) {
+  const partialWithoutFindings =
+    scan.coverage.status === "partial" && scan.approvals.length === 0;
+  const metric = (value: number) => (partialWithoutFindings ? "—" : value);
+  const suffix = scan.coverage.status === "partial" ? " found" : "";
   return (
     <Card
       title="Approval exposure"
       description={`Snapshot at Base block ${scan.snapshotBlock.toLocaleString()}`}
     >
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <SummaryMetric label="Active" value={scan.summary.active} />
-        <SummaryMetric label="High exposure" value={scan.summary.highExposure} />
-        <SummaryMetric label="Unlimited" value={scan.summary.unlimited} />
-        <SummaryMetric label="NFT operators" value={scan.summary.nftOperators} />
+        <SummaryMetric
+          label={`Active${suffix}`}
+          value={metric(scan.summary.active)}
+        />
+        <SummaryMetric
+          label={`High exposure${suffix}`}
+          value={metric(scan.summary.highExposure)}
+        />
+        <SummaryMetric
+          label={`Unlimited${suffix}`}
+          value={metric(scan.summary.unlimited)}
+        />
+        <SummaryMetric
+          label={`NFT operators${suffix}`}
+          value={metric(scan.summary.nftOperators)}
+        />
       </div>
       <div
         className={`mt-3 rounded-xl border p-3 text-[10px] leading-relaxed ${
@@ -768,7 +784,13 @@ function ApprovalSummary({ scan }: { scan: BaseApprovalScan }) {
   );
 }
 
-function SummaryMetric({ label, value }: { label: string; value: number }) {
+function SummaryMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: number | string;
+}) {
   return (
     <div className="metric">
       <div className="text-[9px] text-white/45">{label}</div>
