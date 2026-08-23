@@ -146,9 +146,12 @@ export function SecurityTab() {
     async () => {
       const trimmed = approvalAddress.trim();
       const normalizedInput = trimmed.toLowerCase();
+      const isSameQuery = scanFor === normalizedInput;
       setScanFor(normalizedInput);
       setScanError(null);
       setSelected(new Set());
+      setNotice(null);
+      if (!isSameQuery) setScan(null);
       if (!trimmed) {
         setScan(null);
         setScanError("Paste a Base wallet address or supported name.");
@@ -191,7 +194,7 @@ export function SecurityTab() {
         setLoading(false);
       }
     },
-    [approvalAddress]
+    [approvalAddress, scanFor]
   );
   const closeConfirmation = useCallback(() => setConfirmation(null), []);
 
