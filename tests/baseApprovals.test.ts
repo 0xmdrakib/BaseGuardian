@@ -648,7 +648,7 @@ describe("current approval verification", () => {
     };
   }
 
-  function mockBatchAllowance(value: bigint | null) {
+  function mockBatchAllowance(value: bigint | null, decimals = 6) {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
       const body = JSON.parse(String(init?.body));
       if (!Array.isArray(body)) {
@@ -696,7 +696,7 @@ describe("current approval verification", () => {
             returnData: encodeFunctionResult({
               abi,
               functionName: "decimals",
-              result: 6,
+              result: decimals,
             }),
           };
         });
@@ -771,7 +771,7 @@ describe("current approval verification", () => {
             result: encodeFunctionResult({
               abi,
               functionName: "decimals",
-              result: 6,
+              result: decimals,
             }),
           },
         ];
@@ -802,6 +802,20 @@ describe("current approval verification", () => {
     await expect(
       verifyApprovalCandidates("https://example.invalid", owner, 100, [candidate()])
     ).resolves.toEqual([]);
+  });
+
+  it("does not display a tiny active allowance as zero", async () => {
+    mockBatchAllowance(783_515n, 18);
+    const result = await verifyApprovalCandidates(
+      "https://example.invalid",
+      owner,
+      100,
+      [candidate()]
+    );
+    expect(result[0].value).toMatchObject({
+      raw: "783515",
+      display: "<0.000001",
+    });
   });
 
   it("keeps an unverified candidate without calling it safe", async () => {

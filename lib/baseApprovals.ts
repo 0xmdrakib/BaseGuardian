@@ -991,7 +991,11 @@ function formatTokenValue(value: bigint, decimals: number | null) {
     const formatted = formatUnits(value, decimals);
     const [whole, fraction] = formatted.split(".");
     if (!fraction) return whole;
-    return `${whole}.${fraction.slice(0, 6).replace(/0+$/, "")}`.replace(/\.$/, "");
+    const visibleFraction = fraction.slice(0, 6).replace(/0+$/, "");
+    if (!visibleFraction) {
+      return value > 0n && whole === "0" ? "<0.000001" : whole;
+    }
+    return `${whole}.${visibleFraction}`;
   } catch {
     return value.toString();
   }
