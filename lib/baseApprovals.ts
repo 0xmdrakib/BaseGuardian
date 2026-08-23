@@ -45,6 +45,9 @@ const erc721Abi = parseAbi([
 const operatorAbi = parseAbi([
   "function isApprovedForAll(address owner, address operator) view returns (bool)",
 ]);
+const multicall3Abi = parseAbi([
+  "function aggregate3((address target, bool allowFailure, bytes callData)[] calls) payable returns ((bool success, bytes returnData)[] returnData)",
+]);
 
 type RpcLog = {
   address: Hex;
@@ -104,6 +107,10 @@ const RPC_BATCH_SIZE = 10;
 const RPC_BATCH_RETRIES = 3;
 const RPC_BATCH_CONCURRENCY = 1;
 const RPC_BATCH_GAP_MS = 300;
+const MULTICALL3_ADDRESS = getAddress(
+  "0xcA11bde05977b3631167028862bE2a173976CA11"
+);
+const MULTICALL_CHUNK_SIZE = 80;
 
 type HistoryLog = {
   contractAddress?: string;
@@ -295,7 +302,7 @@ export async function fetchApprovalLogsFromAlchemyTransfers(
   options: Pick<
     ScanOptions,
     "deadlineMs" | "maxTransferPages" | "requestTimeoutMs"
-  > = {}
+  > & { ownerIsContract?: boolean } = {}
 ) {
   const deadlineAt = Date.now() + (options.deadlineMs ?? DEFAULT_DEADLINE_MS);
   const timeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
@@ -314,7 +321,9 @@ export async function fetchApprovalLogsFromAlchemyTransfers(
           fromBlock: "0x0",
           toBlock: toHexBlock(snapshotBlock),
           fromAddress: owner,
-          category: ["external", "internal", "erc20", "erc721", "erc1155"],
+          category: options.ownerIsContract
+            ? ["internal", "erc20", "erc721", "erc1155"]
+            : ["external"],
           excludeZeroValue: false,
           order: "asc",
           maxCount: "0x3e8",
@@ -572,6 +581,53 @@ async function rpcBatch(
   return output;
 }
 
+async function rpcMulticall(
+  rpcUrl: string,
+  requests: Omit<RpcRequest, "jsonrpc">[],
+  blockTag: Hex,
+  timeoutMs: number
+) {
+  const output = new Map<number, RpcResponse>();
+  for (let offset = 0; offset < requests.length; offset += MULTICALL_CHUNK_SIZE) {
+    const chunk = requests.slice(offset, offset + MULTICALL_CHUNK_SIZE);
+    try {
+      const calls = chunk.map((request) => {
+        const call = request.params[0] as { to: Address; data: Hex };
+        return { target: call.to, allowFailure: true, callData: call.data };
+      });
+      const data = encodeFunctionData({
+        abi: multicall3Abi,
+        functionName: "aggregate3",
+        args: [calls],
+      });
+      const encoded = await rpcCall<Hex>(
+        rpcUrl,
+        "eth_call",
+        [{ to: MULTICALL3_ADDRESS, data }, blockTag],
+        timeoutMs
+      );
+      const results = decodeFunctionResult({
+        abi: multicall3Abi,
+        functionName: "aggregate3",
+        data: encoded,
+      });
+      for (let index = 0; index < chunk.length; index += 1) {
+        const result = results[index];
+        output.set(
+          chunk[index].id,
+          result?.success
+            ? { id: chunk[index].id, result: result.returnData }
+            : { id: chunk[index].id, error: { message: "Multicall failed." } }
+        );
+      }
+    } catch {
+      const fallback = await rpcBatch(rpcUrl, chunk, timeoutMs);
+      for (const [id, response] of fallback) output.set(id, response);
+    }
+  }
+  return output;
+}
+
 export async function fetchApprovalLogsAdaptive(
   rpcUrl: string,
   owner: Address,
@@ -732,6 +788,7 @@ export async function verifyApprovalCandidates(
     string,
     { name: number; symbol: number; decimals?: number }
   >();
+  const delegateCodeCalls = new Map<string, number>();
 
   for (const candidate of candidates) {
     const primary = nextId++;
@@ -779,12 +836,17 @@ export async function verifyApprovalCandidates(
       method: "eth_call",
       params: [{ to: candidate.tokenAddress, data }, blockTag],
     });
-    const code = nextId++;
-    requests.push({
-      id: code,
-      method: "eth_getCode",
-      params: [candidate.delegateAddress, blockTag],
-    });
+    const delegateKey = candidate.delegateAddress.toLowerCase();
+    let code = delegateCodeCalls.get(delegateKey);
+    if (!code) {
+      code = nextId++;
+      delegateCodeCalls.set(delegateKey, code);
+      requests.push({
+        id: code,
+        method: "eth_getCode",
+        params: [candidate.delegateAddress, blockTag],
+      });
+    }
     candidateCalls.set(candidate.id, { primary, secondary, code });
 
     const metadataKey = `${candidate.kind === "erc20" ? "erc20" : "nft"}:${candidate.tokenAddress.toLowerCase()}`;
@@ -836,7 +898,18 @@ export async function verifyApprovalCandidates(
     }
   }
 
-  const responses = await rpcBatch(rpcUrl, requests, timeoutMs);
+  const callRequests = requests.filter((request) => request.method === "eth_call");
+  const codeRequests = requests.filter(
+    (request) => request.method === "eth_getCode"
+  );
+  const [callResponses, codeResponses] = await Promise.all([
+    rpcMulticall(rpcUrl, callRequests, blockTag, timeoutMs),
+    rpcBatch(rpcUrl, codeRequests, timeoutMs),
+  ]);
+  const responses = new Map<number, RpcResponse>([
+    ...callResponses,
+    ...codeResponses,
+  ]);
   const items: BaseApprovalItem[] = [];
 
   for (const candidate of candidates) {
@@ -966,36 +1039,50 @@ export async function getBaseApprovalScan(
   const timeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   const snapshotHex = await rpcCall<Hex>(rpcUrl, "eth_blockNumber", [], timeoutMs);
   const snapshotBlock = toNumber(snapshotHex);
+  const ownerCode = await rpcCall<Hex>(
+    rpcUrl,
+    "eth_getCode",
+    [owner, toHexBlock(snapshotBlock)],
+    timeoutMs
+  );
+  const ownerIsContract = ownerCode !== "0x" && ownerCode !== "0x0";
   let discovery: { complete: boolean; logs: RpcLog[] };
   const historyUrl =
     options.historyUrl ??
     (configured ? getAlchemyTransactionHistoryUrl(configured) : null);
   if (historyUrl) {
-    let indexedLogs: RpcLog[] = [];
-    try {
-      const indexed = await fetchApprovalLogsFromAlchemyHistory(
+    const [indexedResult, transfersResult] = await Promise.allSettled([
+      fetchApprovalLogsFromAlchemyHistory(
         historyUrl,
         owner,
         snapshotBlock,
         options
-      );
-      indexedLogs = indexed.logs;
-    } catch (error) {
-      console.error("Alchemy address-history approval discovery failed.", error);
-    }
-    try {
-      const transfers = await fetchApprovalLogsFromAlchemyTransfers(
+      ),
+      fetchApprovalLogsFromAlchemyTransfers(
         rpcUrl,
         owner,
         snapshotBlock,
-        options
+        { ...options, ownerIsContract }
+      ),
+    ]);
+    const indexedLogs =
+      indexedResult.status === "fulfilled" ? indexedResult.value.logs : [];
+    if (indexedResult.status === "rejected") {
+      console.error(
+        "Alchemy address-history approval discovery failed.",
+        indexedResult.reason
       );
+    }
+    if (transfersResult.status === "fulfilled") {
       discovery = {
-        complete: transfers.complete,
-        logs: [...indexedLogs, ...transfers.logs],
+        complete: transfersResult.value.complete,
+        logs: [...indexedLogs, ...transfersResult.value.logs],
       };
-    } catch (error) {
-      console.error("Alchemy transfer-receipt approval discovery failed.", error);
+    } else {
+      console.error(
+        "Alchemy transfer-receipt approval discovery failed.",
+        transfersResult.reason
+      );
       const fallback = await fetchApprovalLogsAdaptive(
         rpcUrl,
         owner,
@@ -1022,9 +1109,6 @@ export async function getBaseApprovalScan(
       b.blockNumber - a.blockNumber || b.logIndex - a.logIndex
     )
     .slice(0, MAX_VERIFIED_CANDIDATES);
-  if (configured && candidatesToVerify.length > 0) {
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-  }
   const approvals = await verifyApprovalCandidates(
     rpcUrl,
     owner,

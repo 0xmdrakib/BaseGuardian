@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  decodeFunctionData,
   encodeFunctionData,
   encodeFunctionResult,
   maxUint256,
@@ -91,6 +92,7 @@ describe("adaptive approval history", () => {
       if (calls === 1) {
         expect(body.method).toBe("alchemy_getAssetTransfers");
         expect(body.params[0]).toMatchObject({
+          category: ["external"],
           fromAddress: owner,
           excludeZeroValue: false,
         });
@@ -127,6 +129,37 @@ describe("adaptive approval history", () => {
 
     expect(result).toMatchObject({ complete: true, pages: 1, receipts: 1 });
     expect(result.logs).toHaveLength(1);
+  });
+
+  it("uses contract activity categories for smart-account owners", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.params[0].category).toEqual([
+        "internal",
+        "erc20",
+        "erc721",
+        "erc1155",
+      ]);
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: { transfers: [] },
+        })
+      );
+    });
+
+    const result = await fetchApprovalLogsFromAlchemyTransfers(
+      "https://example.invalid",
+      owner,
+      100,
+      {
+        deadlineMs: 5_000,
+        ownerIsContract: true,
+        requestTimeoutMs: 1_000,
+      }
+    );
+    expect(result).toMatchObject({ complete: true, pages: 1, receipts: 0 });
   });
 
   it("paginates Alchemy wallet history and extracts only owner approval logs", async () => {
@@ -291,6 +324,9 @@ describe("current approval verification", () => {
     symbol: encodeFunctionData({ abi, functionName: "symbol" }),
     decimals: encodeFunctionData({ abi, functionName: "decimals" }),
   };
+  const multicallAbi = parseAbi([
+    "function aggregate3((address target, bool allowFailure, bytes callData)[] calls) payable returns ((bool success, bytes returnData)[] returnData)",
+  ]);
 
   function candidate(): ApprovalCandidate {
     return {
@@ -308,7 +344,70 @@ describe("current approval verification", () => {
 
   function mockBatchAllowance(value: bigint | null) {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
-      const requests = JSON.parse(String(init?.body)) as Array<{
+      const body = JSON.parse(String(init?.body));
+      if (!Array.isArray(body)) {
+        const decoded = decodeFunctionData({
+          abi: multicallAbi,
+          data: body.params[0].data,
+        });
+        const calls = decoded.args[0];
+        const results = calls.map((call) => {
+          const data = call.callData;
+          if (data.startsWith(selectors.allowance)) {
+            return value === null
+              ? { success: false, returnData: "0x" as Hex }
+              : {
+                  success: true,
+                  returnData: encodeFunctionResult({
+                    abi,
+                    functionName: "allowance",
+                    result: value,
+                  }),
+                };
+          }
+          if (data === selectors.name) {
+            return {
+              success: true,
+              returnData: encodeFunctionResult({
+                abi,
+                functionName: "name",
+                result: "USD Coin",
+              }),
+            };
+          }
+          if (data === selectors.symbol) {
+            return {
+              success: true,
+              returnData: encodeFunctionResult({
+                abi,
+                functionName: "symbol",
+                result: "USDC",
+              }),
+            };
+          }
+          return {
+            success: true,
+            returnData: encodeFunctionResult({
+              abi,
+              functionName: "decimals",
+              result: 6,
+            }),
+          };
+        });
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: encodeFunctionResult({
+              abi: multicallAbi,
+              functionName: "aggregate3",
+              result: results,
+            }),
+          })
+        );
+      }
+
+      const requests = body as Array<{
         id: number;
         method: string;
         params: any[];

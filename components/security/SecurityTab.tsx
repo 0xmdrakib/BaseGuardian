@@ -32,6 +32,48 @@ type ActionNotice = {
   href?: string;
 };
 
+const APPROVAL_CACHE_PREFIX = "baseguardian:approval-scan:";
+const APPROVAL_CACHE_FRESH_MS = 2 * 60_000;
+const APPROVAL_CACHE_MAX_AGE_MS = 10 * 60_000;
+
+type CachedApprovalScan = {
+  savedAt: number;
+  scan: BaseApprovalScan;
+};
+
+function readCachedApprovalScan(input: string): CachedApprovalScan | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(
+      `${APPROVAL_CACHE_PREFIX}${input.toLowerCase()}`
+    );
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as CachedApprovalScan;
+    if (
+      !cached?.scan?.address ||
+      !Array.isArray(cached.scan.approvals) ||
+      Date.now() - cached.savedAt > APPROVAL_CACHE_MAX_AGE_MS
+    ) {
+      return null;
+    }
+    return cached;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedApprovalScan(keys: string[], scan: BaseApprovalScan) {
+  if (typeof window === "undefined") return;
+  try {
+    const value = JSON.stringify({ savedAt: Date.now(), scan });
+    for (const key of new Set(keys.map((item) => item.toLowerCase()))) {
+      window.localStorage.setItem(`${APPROVAL_CACHE_PREFIX}${key}`, value);
+    }
+  } catch {
+    // Storage is an optional speed-up; scans still work when it is unavailable.
+  }
+}
+
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
@@ -101,9 +143,10 @@ export function SecurityTab() {
       : "https://revoke.cash/?chain=base";
 
   const runScan = useCallback(
-    async (fresh = false) => {
+    async () => {
       const trimmed = approvalAddress.trim();
-      setScanFor(trimmed.toLowerCase());
+      const normalizedInput = trimmed.toLowerCase();
+      setScanFor(normalizedInput);
       setScanError(null);
       setSelected(new Set());
       if (!trimmed) {
@@ -112,20 +155,37 @@ export function SecurityTab() {
         return;
       }
 
+      const cached = readCachedApprovalScan(normalizedInput);
+      if (cached) setScan(cached.scan);
+      if (
+        cached?.scan.coverage.status === "complete" &&
+        Date.now() - cached.savedAt <= APPROVAL_CACHE_FRESH_MS
+      ) {
+        return;
+      }
+
       setLoading(true);
       try {
         const response = await fetch(
-          `/api/base/approvals?address=${encodeURIComponent(trimmed)}${fresh ? "&fresh=1" : ""}`
+          `/api/base/approvals?address=${encodeURIComponent(trimmed)}`
         );
         const body = (await response.json()) as BaseApprovalScan & {
           error?: string;
         };
         if (!response.ok) throw new Error(body.error ?? "Approval scan failed.");
         setScan(body);
+        writeCachedApprovalScan(
+          [normalizedInput, body.address.toLowerCase()],
+          body
+        );
       } catch (error) {
-        setScan(null);
+        if (!cached) setScan(null);
         setScanError(
-          error instanceof Error ? error.message : "Approval scan failed."
+          cached
+            ? "Could not refresh right now. Showing the most recent saved scan."
+            : error instanceof Error
+              ? error.message
+              : "Approval scan failed."
         );
       } finally {
         setLoading(false);
@@ -135,33 +195,41 @@ export function SecurityTab() {
   );
   const closeConfirmation = useCallback(() => setConfirmation(null), []);
 
-  const removeApprovals = useCallback((ids: string[]) => {
-    setScan((current) => {
-      if (!current) return current;
-      const approvals = current.approvals.filter(
-        (approval) => !ids.includes(approval.id)
-      );
-      return {
-        ...current,
-        approvals,
-        summary: {
-          active: approvals.length,
-          unlimited: approvals.filter((approval) => approval.value.unlimited)
-            .length,
-          nftOperators: approvals.filter(
-            (approval) => approval.kind === "nft-operator"
-          ).length,
-          highExposure: approvals.filter(
-            (approval) => approval.exposure === "high"
-          ).length,
-          unverified: approvals.filter(
-            (approval) => approval.verification === "unverified"
-          ).length,
-        },
-      };
-    });
-    setSelected(new Set());
-  }, []);
+  const removeApprovals = useCallback(
+    (ids: string[]) => {
+      setScan((current) => {
+        if (!current) return current;
+        const approvals = current.approvals.filter(
+          (approval) => !ids.includes(approval.id)
+        );
+        const updated = {
+          ...current,
+          approvals,
+          summary: {
+            active: approvals.length,
+            unlimited: approvals.filter((approval) => approval.value.unlimited)
+              .length,
+            nftOperators: approvals.filter(
+              (approval) => approval.kind === "nft-operator"
+            ).length,
+            highExposure: approvals.filter(
+              (approval) => approval.exposure === "high"
+            ).length,
+            unverified: approvals.filter(
+              (approval) => approval.verification === "unverified"
+            ).length,
+          },
+        };
+        writeCachedApprovalScan(
+          [scanFor, updated.address.toLowerCase()],
+          updated
+        );
+        return updated;
+      });
+      setSelected(new Set());
+    },
+    [scanFor]
+  );
 
   const openConfirmation = (approvals: BaseApprovalItem[]) => {
     if (!scannedWalletConnected) {
@@ -257,7 +325,8 @@ export function SecurityTab() {
         removeApprovals(submittedIds);
         setNotice({
           kind: "success",
-          message: "Approval revoked on Base.",
+          message:
+            "Approval revoked and confirmed on Base. Results updated without rescanning.",
           href: `https://basescan.org/tx/${hash}`,
         });
       } else {
@@ -286,13 +355,13 @@ export function SecurityTab() {
         removeApprovals(submittedIds);
         setNotice({
           kind: "success",
-          message: "Selected approvals were revoked on Base.",
+          message:
+            "Selected approvals were revoked and confirmed on Base. Results updated without rescanning.",
           href: transactionHash
             ? `https://basescan.org/tx/${transactionHash}`
             : undefined,
         });
       }
-      void runScan(true);
     } catch (error) {
       setConfirmation(null);
       setNotice({ kind: "error", message: friendlyActionError(error) });
@@ -363,7 +432,9 @@ export function SecurityTab() {
               role="status"
             >
               <span className="wallet-spinner" aria-hidden="true" />
-              Discovering history and verifying current permissions…
+              {visibleScan
+                ? "Refreshing current permissions in the background…"
+                : "Discovering history and verifying current permissions…"}
             </div>
           )}
           {visibleError && (
@@ -377,7 +448,7 @@ export function SecurityTab() {
         </div>
       </Card>
 
-      {visibleScan && !loading && (
+      {visibleScan && (
         <>
           <ApprovalSummary scan={visibleScan} />
 
