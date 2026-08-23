@@ -365,9 +365,9 @@ export async function fetchApprovalLogsFromAlchemyTransfers(
   }));
   const responses = requests.length
     ? await rpcBatch(rpcUrl, requests, timeoutMs, {
-        batchSize: 50,
+        batchSize: 20,
         concurrency: 1,
-        gapMs: 150,
+        gapMs: 250,
       })
     : new Map<number, RpcResponse>();
   const ownerTopic = pad(owner, { size: 32 }).toLowerCase();
@@ -602,37 +602,52 @@ async function rpcMulticall(
   const output = new Map<number, RpcResponse>();
   for (let offset = 0; offset < requests.length; offset += MULTICALL_CHUNK_SIZE) {
     const chunk = requests.slice(offset, offset + MULTICALL_CHUNK_SIZE);
-    try {
-      const calls = chunk.map((request) => {
-        const call = request.params[0] as { to: Address; data: Hex };
-        return { target: call.to, allowFailure: true, callData: call.data };
-      });
-      const data = encodeFunctionData({
-        abi: multicall3Abi,
-        functionName: "aggregate3",
-        args: [calls],
-      });
-      const encoded = await rpcCall<Hex>(
-        rpcUrl,
-        "eth_call",
-        [{ to: MULTICALL3_ADDRESS, data }, blockTag],
-        timeoutMs
-      );
-      const results = decodeFunctionResult({
-        abi: multicall3Abi,
-        functionName: "aggregate3",
-        data: encoded,
-      });
-      for (let index = 0; index < chunk.length; index += 1) {
-        const result = results[index];
-        output.set(
-          chunk[index].id,
-          result?.success
-            ? { id: chunk[index].id, result: result.returnData }
-            : { id: chunk[index].id, error: { message: "Multicall failed." } }
+    let handled = false;
+    for (let attempt = 0; attempt < RPC_BATCH_RETRIES; attempt += 1) {
+      try {
+        const calls = chunk.map((request) => {
+          const call = request.params[0] as { to: Address; data: Hex };
+          return { target: call.to, allowFailure: true, callData: call.data };
+        });
+        const data = encodeFunctionData({
+          abi: multicall3Abi,
+          functionName: "aggregate3",
+          args: [calls],
+        });
+        const encoded = await rpcCall<Hex>(
+          rpcUrl,
+          "eth_call",
+          [{ to: MULTICALL3_ADDRESS, data }, blockTag],
+          timeoutMs
         );
+        const results = decodeFunctionResult({
+          abi: multicall3Abi,
+          functionName: "aggregate3",
+          data: encoded,
+        });
+        for (let index = 0; index < chunk.length; index += 1) {
+          const result = results[index];
+          output.set(
+            chunk[index].id,
+            result?.success
+              ? { id: chunk[index].id, result: result.returnData }
+              : {
+                  id: chunk[index].id,
+                  error: { message: "Multicall failed." },
+                }
+          );
+        }
+        handled = true;
+        break;
+      } catch {
+        if (attempt + 1 < RPC_BATCH_RETRIES) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, 500 * 2 ** attempt)
+          );
+        }
       }
-    } catch {
+    }
+    if (!handled) {
       const fallback = await rpcBatch(rpcUrl, chunk, timeoutMs);
       for (const [id, response] of fallback) output.set(id, response);
     }
