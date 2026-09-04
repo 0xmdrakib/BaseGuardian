@@ -24,9 +24,9 @@ export function TabNav({ activeTab, onChange }: TabNavProps) {
             type="button"
             onClick={() => onChange(tab.id)}
             className={
-              "flex-1 rounded-xl px-3 py-2 font-semibold tracking-tight transition focus-visible:ring-2 focus-visible:ring-blue-500/30 " +
+              "flex-1 rounded-xl px-3 py-2 font-semibold tracking-tight transition focus-visible:ring-2 focus-visible:ring-blue-400/30 " +
               (isActive
-                ? "bg-white text-neutral-900 shadow-md shadow-black/30"
+                ? "tab-active"
                 : "text-white/60 hover:bg-white/[0.06] hover:text-white/90")
             }
           >

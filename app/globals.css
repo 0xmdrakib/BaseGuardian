@@ -7,31 +7,36 @@
     color-scheme: dark;
 
     /* --- Design tokens (small + consistent) --- */
-    --bg-0: #05060a;
-    --bg-1: #070812;
+    --bg-0: #020611;
+    --bg-1: #07142a;
 
-    --text-0: rgba(255, 255, 255, 0.92);
-    --text-1: rgba(255, 255, 255, 0.72);
-    --text-2: rgba(255, 255, 255, 0.52);
+    --ivory: 247 250 255;
+    --shadow: 1 4 12;
+    --text-0: rgba(var(--ivory), 0.94);
+    --text-1: rgba(var(--ivory), 0.74);
+    --text-2: rgba(var(--ivory), 0.54);
 
-    --border-0: rgba(255, 255, 255, 0.10);
-    --border-1: rgba(255, 255, 255, 0.16);
+    --border-0: rgba(103, 159, 255, 0.16);
+    --border-1: rgba(132, 183, 255, 0.28);
 
-    --surface-0: rgba(255, 255, 255, 0.030);
-    --surface-1: rgba(255, 255, 255, 0.045);
-    --surface-2: rgba(255, 255, 255, 0.070);
+    --surface-0: rgba(57, 104, 196, 0.040);
+    --surface-1: rgba(222, 237, 255, 0.056);
+    --surface-2: rgba(88, 151, 255, 0.090);
 
     /* Accent as RGB triplets so we can do rgba(var(--accent), .2) */
-    --accent: 59 130 246;   /* Base-ish blue */
-    --accent-2: 99 102 241; /* indigo */
-    --accent-3: 34 211 238; /* cyan */
+    --accent: 78 137 255;   /* sapphire */
+    --accent-2: 105 92 255; /* royal indigo */
+    --accent-3: 34 211 238; /* ice cyan */
+    --success: 85 214 165;
+    --warning: 243 201 105;
+    --danger: 242 125 155;
 
     /* One source of truth for the app background */
     --app-bg:
       radial-gradient(1200px 800px at 10% -10%, rgba(var(--accent), 0.16), transparent 58%),
-      radial-gradient(900px 650px at 90% 0%, rgba(16, 185, 129, 0.10), transparent 55%),
-      radial-gradient(850px 650px at 52% 110%, rgba(168, 85, 247, 0.10), transparent 58%),
-      radial-gradient(1200px 600px at 50% 40%, rgba(255, 255, 255, 0.035), transparent 60%),
+      radial-gradient(900px 650px at 90% 0%, rgba(var(--accent-2), 0.14), transparent 55%),
+      radial-gradient(850px 650px at 52% 110%, rgba(var(--accent-3), 0.09), transparent 58%),
+      radial-gradient(1200px 600px at 50% 40%, rgba(var(--ivory), 0.028), transparent 60%),
       linear-gradient(180deg, var(--bg-0) 0%, var(--bg-1) 45%, var(--bg-0) 100%);
   }
 
@@ -76,7 +81,7 @@
     inset: 0;
     pointer-events: none;
     background-image:
-      radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+      radial-gradient(rgba(var(--accent), 0.055) 1px, transparent 1px);
     background-size: 28px 28px;
     opacity: 0.08;
     mask-image: radial-gradient(closest-side at 50% 35%, #000 0%, transparent 78%);
@@ -96,16 +101,16 @@
   /* Scrollbars (kept subtle) */
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+    scrollbar-color: rgba(var(--accent), 0.22) transparent;
   }
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
   }
   ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.14);
+    background: rgba(var(--accent), 0.20);
     border-radius: 999px;
-    border: 2px solid rgba(0, 0, 0, 0.35);
+    border: 2px solid rgba(var(--shadow), 0.42);
   }
   ::-webkit-scrollbar-track {
     background: transparent;
@@ -129,10 +134,10 @@
   .panel {
     @apply relative overflow-hidden rounded-3xl border shadow-2xl;
     border-color: var(--border-0);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.050), rgba(255, 255, 255, 0.022));
+    background: linear-gradient(180deg, rgba(222, 237, 255, 0.064), rgba(105, 92, 255, 0.030));
     box-shadow:
-      0 40px 90px rgba(0, 0, 0, 0.55),
-      0 1px 0 rgba(255, 255, 255, 0.10) inset;
+      0 40px 90px rgba(var(--shadow), 0.62),
+      0 1px 0 rgba(var(--accent), 0.18) inset;
     backdrop-filter: blur(14px) saturate(140%);
   }
 
@@ -143,9 +148,9 @@
     pointer-events: none;
     border-radius: inherit;
     background:
-      radial-gradient(900px 320px at 50% 0%, rgba(168, 85, 247, 0.10), transparent 60%),
-      radial-gradient(700px 240px at 15% 0%, rgba(var(--accent), 0.09), transparent 58%),
-      radial-gradient(700px 240px at 85% 0%, rgba(16, 185, 129, 0.07), transparent 58%);
+      radial-gradient(900px 320px at 50% 0%, rgba(var(--accent-2), 0.13), transparent 60%),
+      radial-gradient(700px 240px at 15% 0%, rgba(var(--accent), 0.12), transparent 58%),
+      radial-gradient(700px 240px at 85% 0%, rgba(var(--accent-3), 0.08), transparent 58%);
   }
 
   .panel > * {
@@ -158,8 +163,8 @@
     border-color: var(--border-0);
     background: linear-gradient(180deg, var(--surface-1), var(--surface-0));
     box-shadow:
-      0 18px 45px rgba(0, 0, 0, 0.38),
-      0 1px 0 rgba(255, 255, 255, 0.08) inset;
+      0 18px 45px rgba(var(--shadow), 0.44),
+      0 1px 0 rgba(var(--accent), 0.12) inset;
     backdrop-filter: blur(10px) saturate(140%);
   }
 
@@ -171,13 +176,13 @@
     border-radius: inherit;
     background:
       radial-gradient(700px 240px at 15% 0%, rgba(var(--accent), 0.12), transparent 55%),
-      radial-gradient(700px 240px at 85% 0%, rgba(16, 185, 129, 0.08), transparent 55%);
+      radial-gradient(700px 240px at 85% 0%, rgba(var(--accent-2), 0.10), transparent 55%);
     opacity: 0.9;
   }
 
   .card:hover {
     border-color: var(--border-1);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.060), rgba(255, 255, 255, 0.028));
+    background: linear-gradient(180deg, rgba(222, 237, 255, 0.074), rgba(105, 92, 255, 0.038));
     transform: translateY(-1px);
   }
 
@@ -189,21 +194,21 @@
   .subpanel {
     @apply rounded-2xl border p-3;
     border-color: var(--border-0);
-    background: rgba(0, 0, 0, 0.22);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    background: rgba(var(--shadow), 0.28);
+    box-shadow: 0 10px 30px rgba(var(--shadow), 0.42);
   }
 
   /* Inputs */
   .input {
     @apply w-full rounded-xl border px-3 py-2 text-xs transition;
     border-color: var(--border-0);
-    background: rgba(0, 0, 0, 0.28);
+    background: rgba(var(--shadow), 0.34);
     color: var(--text-0);
     backdrop-filter: blur(8px) saturate(140%);
   }
 
   .input::placeholder {
-    color: rgba(255, 255, 255, 0.30);
+    color: rgba(var(--ivory), 0.32);
   }
 
   .input:focus-visible {
@@ -211,7 +216,7 @@
     border-color: rgba(var(--accent), 0.55);
     box-shadow:
       0 0 0 4px rgba(var(--accent), 0.20),
-      0 1px 0 rgba(255, 255, 255, 0.06) inset;
+      0 1px 0 rgba(var(--ivory), 0.07) inset;
   }
 
   /* Buttons */
@@ -225,43 +230,52 @@
     box-shadow: 0 0 0 4px rgba(var(--accent), 0.22);
   }
 
-  .btn-primary {
-    /* Primary CTA: white pill (matches top tabs) */
-    color: rgba(10, 12, 16, 0.92);
-    text-shadow: none;
-    border: 1px solid rgba(255, 255, 255, 0.72);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 255, 255, 0.88) 60%, rgba(255, 255, 255, 0.86) 100%);
+  .tab-active {
+    color: #061225;
+    background: linear-gradient(180deg, #dceeff 0%, #78afff 56%, #5b8ef7 100%);
     box-shadow:
-      0 18px 50px rgba(0, 0, 0, 0.45),
-      0 1px 0 rgba(255, 255, 255, 0.75) inset,
-      0 0 0 1px rgba(0, 0, 0, 0.10) inset,
-      0 0 16px rgba(255, 255, 255, 0.10);
+      0 8px 20px rgba(var(--shadow), 0.34),
+      0 1px 0 rgba(var(--ivory), 0.72) inset,
+      0 0 16px rgba(var(--accent), 0.12);
+  }
+
+  .btn-primary {
+    /* Primary CTA: polished sapphire, keeping the existing pill treatment. */
+    color: #061225;
+    text-shadow: none;
+    border: 1px solid rgba(var(--accent), 0.76);
+    background:
+      linear-gradient(180deg, #dceeff 0%, #78afff 58%, #4e7ce8 100%);
+    box-shadow:
+      0 18px 50px rgba(var(--shadow), 0.50),
+      0 1px 0 rgba(var(--ivory), 0.66) inset,
+      0 0 0 1px rgba(var(--shadow), 0.14) inset,
+      0 0 18px rgba(var(--accent), 0.14);
   }
 
 
   /* Action-button glow: subtle by default, stronger once an input has content */
   .btn-primary:not(:disabled) {
-    border-color: rgba(255, 255, 255, 0.68);
+    border-color: rgba(var(--accent), 0.82);
   }
 
   .input:not(:placeholder-shown) + .btn.btn-primary {
     box-shadow:
-      0 20px 55px rgba(0, 0, 0, 0.44),
-      0 1px 0 rgba(255, 255, 255, 0.80) inset,
-      0 0 0 1px rgba(0, 0, 0, 0.10) inset,
+      0 20px 55px rgba(var(--shadow), 0.50),
+      0 1px 0 rgba(var(--ivory), 0.72) inset,
+      0 0 0 1px rgba(var(--shadow), 0.14) inset,
       0 0 0 4px rgba(var(--accent), 0.10),
-      0 0 28px rgba(255, 255, 255, 0.22);
+      0 0 28px rgba(var(--accent), 0.24);
     filter: brightness(1.01);
   }
 
   .input:focus-visible:not(:placeholder-shown) + .btn.btn-primary {
     box-shadow:
-      0 22px 60px rgba(0, 0, 0, 0.42),
-      0 1px 0 rgba(255, 255, 255, 0.82) inset,
-      0 0 0 1px rgba(0, 0, 0, 0.10) inset,
+      0 22px 60px rgba(var(--shadow), 0.48),
+      0 1px 0 rgba(var(--ivory), 0.76) inset,
+      0 0 0 1px rgba(var(--shadow), 0.14) inset,
       0 0 0 4px rgba(var(--accent), 0.16),
-      0 0 34px rgba(255, 255, 255, 0.26);
+      0 0 34px rgba(var(--accent), 0.32);
   }
 
   .btn-primary:hover {
@@ -274,14 +288,14 @@
   }
 
   .btn-ghost {
-    color: rgba(255, 255, 255, 0.84);
+    color: rgba(var(--ivory), 0.86);
     border: 1px solid var(--border-0);
-    background: rgba(255, 255, 255, 0.055);
+    background: rgba(var(--accent), 0.060);
     backdrop-filter: blur(10px) saturate(140%);
   }
 
   .btn-ghost:hover {
-    background: rgba(255, 255, 255, 0.085);
+    background: rgba(var(--accent), 0.105);
     border-color: var(--border-1);
   }
 
@@ -293,25 +307,25 @@
   .metric {
     @apply rounded-xl border px-3 py-2;
     border-color: var(--border-0);
-    background: rgba(255, 255, 255, 0.035);
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.30);
+    background: rgba(var(--accent), 0.045);
+    box-shadow: 0 12px 28px rgba(var(--shadow), 0.36);
   }
 
   /* Badges */
   .badge {
     @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium;
     backdrop-filter: blur(10px) saturate(140%);
-    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 8px 18px rgba(var(--shadow), 0.32);
   }
 
   /* Links */
   .link {
     @apply underline underline-offset-2;
-    text-decoration-color: rgba(255, 255, 255, 0.30);
+    text-decoration-color: rgba(var(--accent), 0.44);
   }
 
   .link:hover {
-    text-decoration-color: rgba(255, 255, 255, 0.60);
+    text-decoration-color: rgba(var(--accent), 0.86);
   }
 
   .wallet-status {
@@ -322,16 +336,16 @@
     padding: 2px;
     border: 1px solid var(--border-0);
     border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(var(--accent), 0.055);
     backdrop-filter: blur(12px) saturate(140%);
   }
 
   .wallet-status.connected {
-    border-color: rgba(52, 211, 153, 0.28);
+    border-color: rgba(var(--success), 0.34);
   }
 
   .wallet-status.wrong-network {
-    border-color: rgba(251, 191, 36, 0.34);
+    border-color: rgba(var(--warning), 0.38);
   }
 
   .wallet-status-main,
@@ -339,7 +353,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    color: rgba(255, 255, 255, 0.88);
+    color: rgba(var(--ivory), 0.90);
     transition: background-color 160ms ease, color 160ms ease, opacity 160ms ease;
   }
 
@@ -355,7 +369,7 @@
   }
 
   .wallet-status-main:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.07);
+    background: rgba(var(--accent), 0.10);
   }
 
   .wallet-status-main:disabled,
@@ -374,7 +388,7 @@
     width: 18px;
     height: 18px;
     flex: 0 0 auto;
-    color: rgba(255, 255, 255, 0.82);
+    color: rgba(var(--ivory), 0.84);
   }
 
   .wallet-status-dot {
@@ -382,39 +396,39 @@
     height: 7px;
     flex: 0 0 auto;
     border-radius: 50%;
-    background: #d9776a;
-    box-shadow: 0 0 0 4px rgba(217, 119, 106, 0.12);
+    background: rgb(var(--danger));
+    box-shadow: 0 0 0 4px rgba(var(--danger), 0.13);
   }
 
   .wallet-status.connected .wallet-status-dot {
-    background: #34d399;
-    box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.12);
+    background: rgb(var(--success));
+    box-shadow: 0 0 0 4px rgba(var(--success), 0.13);
   }
 
   .wallet-status.wrong-network .wallet-status-dot {
-    background: #fbbf24;
-    box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.12);
+    background: rgb(var(--warning));
+    box-shadow: 0 0 0 4px rgba(var(--warning), 0.13);
   }
 
   .wallet-disconnect {
     width: 34px;
     height: 34px;
-    border: 1px solid rgba(251, 113, 133, 0.14);
+    border: 1px solid rgba(var(--danger), 0.20);
     border-radius: 9999px;
-    color: #fda4af;
-    background: rgba(244, 63, 94, 0.08);
+    color: rgb(var(--danger));
+    background: rgba(var(--danger), 0.09);
   }
 
   .wallet-disconnect:hover:not(:disabled) {
-    background: rgba(244, 63, 94, 0.15);
+    background: rgba(var(--danger), 0.17);
   }
 
   .wallet-spinner {
     width: 15px;
     height: 15px;
     flex: 0 0 auto;
-    border: 2px solid rgba(255, 255, 255, 0.25);
-    border-top-color: rgba(255, 255, 255, 0.88);
+    border: 2px solid rgba(var(--ivory), 0.26);
+    border-top-color: rgba(var(--accent), 0.94);
     border-radius: 50%;
     animation: wallet-spin 800ms linear infinite;
   }
@@ -427,7 +441,7 @@
     align-items: center;
     justify-content: center;
     padding: 18px;
-    background: rgba(0, 0, 0, 0.66);
+    background: rgba(var(--shadow), 0.72);
     backdrop-filter: blur(10px);
   }
 
@@ -435,11 +449,11 @@
     width: min(100%, 460px);
     max-height: calc(100dvh - 36px);
     overflow-y: auto;
-    border: 1px solid rgba(255, 255, 255, 0.13);
+    border: 1px solid var(--border-1);
     border-radius: 20px;
     color: var(--text-0);
-    background: linear-gradient(180deg, #12141c, #0b0c12);
-    box-shadow: 0 30px 90px rgba(0, 0, 0, 0.72);
+    background: linear-gradient(180deg, #0d1932, #050a17);
+    box-shadow: 0 30px 90px rgba(var(--shadow), 0.78);
   }
 
   .wallet-modal-header {
@@ -455,7 +469,7 @@
   }
 
   .wallet-modal-header > div > span {
-    color: rgba(255, 255, 255, 0.45);
+    color: rgba(var(--accent), 0.72);
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.12em;
@@ -472,7 +486,7 @@
 
   .wallet-modal-header p {
     margin-top: 7px;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(var(--ivory), 0.52);
     font-size: 12px;
     line-height: 1.45;
   }
@@ -482,24 +496,24 @@
     height: 34px;
     flex: 0 0 34px;
     border-radius: 9999px;
-    color: rgba(255, 255, 255, 0.54);
+    color: rgba(var(--ivory), 0.56);
     font-size: 25px;
     line-height: 1;
     transition: background-color 160ms ease, color 160ms ease;
   }
 
   .wallet-modal-close:hover:not(:disabled) {
-    color: white;
-    background: rgba(255, 255, 255, 0.08);
+    color: rgb(var(--ivory));
+    background: rgba(var(--accent), 0.10);
   }
 
   .wallet-modal-error {
     margin: 0 18px 13px;
     padding: 10px 12px;
-    border: 1px solid rgba(251, 113, 133, 0.24);
+    border: 1px solid rgba(var(--danger), 0.30);
     border-radius: 10px;
-    color: #fecdd3;
-    background: rgba(244, 63, 94, 0.09);
+    color: #ffd5dd;
+    background: rgba(var(--danger), 0.10);
     font-size: 11px;
     line-height: 1.45;
   }
@@ -517,17 +531,17 @@
     align-items: center;
     gap: 12px;
     padding: 10px 12px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-0);
     border-radius: 12px;
-    color: rgba(255, 255, 255, 0.9);
-    background: rgba(255, 255, 255, 0.035);
+    color: rgba(var(--ivory), 0.92);
+    background: rgba(var(--accent), 0.040);
     text-align: left;
     transition: border-color 160ms ease, background-color 160ms ease;
   }
 
   .wallet-choice:hover:not(:disabled) {
-    border-color: rgba(255, 255, 255, 0.22);
-    background: rgba(255, 255, 255, 0.065);
+    border-color: var(--border-1);
+    background: rgba(var(--accent), 0.085);
   }
 
   .wallet-choice:disabled {
@@ -543,10 +557,10 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-0);
     border-radius: 12px;
-    color: rgba(255, 255, 255, 0.72);
-    background: rgba(255, 255, 255, 0.055);
+    color: rgba(var(--ivory), 0.74);
+    background: rgba(var(--accent), 0.065);
   }
 
   .wallet-choice-icon img,
@@ -584,7 +598,7 @@
   }
 
   .wallet-choice-copy small {
-    color: rgba(255, 255, 255, 0.42);
+    color: rgba(var(--ivory), 0.44);
     font-size: 11px;
   }
 
@@ -594,9 +608,9 @@
     align-items: center;
     gap: 12px;
     padding: 12px;
-    border: 1px dashed rgba(255, 255, 255, 0.12);
+    border: 1px dashed rgba(var(--accent), 0.20);
     border-radius: 12px;
-    color: rgba(255, 255, 255, 0.52);
+    color: rgba(var(--ivory), 0.54);
   }
 
   .wallet-empty-state > svg {
@@ -611,7 +625,7 @@
   }
 
   .wallet-empty-state strong {
-    color: rgba(255, 255, 255, 0.78);
+    color: rgba(var(--ivory), 0.80);
     font-size: 12px;
   }
 
@@ -621,23 +635,23 @@
 
   .walletconnect-section {
     padding: 16px 18px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid var(--border-0);
   }
 
   .wallet-modal-footer {
     padding: 13px 20px 18px;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: 1px solid var(--border-0);
   }
 
   .wallet-modal-footer button {
     padding: 5px 2px;
-    color: rgba(255, 255, 255, 0.48);
+    color: rgba(var(--ivory), 0.50);
     font-size: 11px;
     transition: color 160ms ease;
   }
 
   .wallet-modal-footer button:hover:not(:disabled) {
-    color: rgba(255, 255, 255, 0.85);
+    color: rgba(var(--accent), 0.92);
   }
 
   @keyframes wallet-spin {

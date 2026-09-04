@@ -1040,10 +1040,10 @@ function ActionNoticeToast({
       <div
         className={`pointer-events-auto flex items-start gap-3 rounded-xl border p-3 text-[11px] shadow-2xl backdrop-blur-xl ${
           notice.kind === "error"
-            ? "border-rose-400/30 bg-[#24171d]/95 text-rose-100"
+            ? "border-rose-400/30 bg-[#2a1520]/95 text-rose-100"
             : notice.kind === "success"
-              ? "border-emerald-400/30 bg-[#13231d]/95 text-emerald-100"
-              : "border-blue-400/30 bg-[#121d2e]/95 text-blue-100"
+              ? "border-emerald-400/30 bg-[#10241e]/95 text-emerald-100"
+              : "border-blue-400/30 bg-[#0c1d3d]/95 text-blue-100"
         }`}
         role={notice.kind === "error" ? "alert" : "status"}
         aria-live={notice.kind === "error" ? "assertive" : "polite"}
