@@ -6,7 +6,8 @@ import { Providers } from "@/components/wallet/Providers";
 
 const APP_URL = "https://baseguardian.rakibhq.xyz";
 const BASE_APP_ID = "693acb1de6be54f5ed71d631";
-const SOCIAL_IMAGE_URL = `${APP_URL}/base-guardian-link-preview.jpg`;
+// Keep the filename versioned so social crawlers fetch a fresh card after updates.
+const SOCIAL_IMAGE_URL = `${APP_URL}/base-guardian-x-card-v2.png`;
 const DESCRIPTION = "Wallet intelligence and onchain security for Base.";
 const SOCIAL_IMAGE_ALT = "Base Guardian — Wallet intelligence and onchain security for Base";
 
@@ -31,7 +32,7 @@ export const metadata: Metadata = {
         width: 1200,
         height: 630,
         alt: SOCIAL_IMAGE_ALT,
-        type: "image/jpeg",
+        type: "image/png",
       },
     ],
     type: "website",
