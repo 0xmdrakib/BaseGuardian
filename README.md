@@ -4,6 +4,8 @@ Base Guardian is a Base wallet activity and security app for checking wallet act
 
 **Live app:** https://baseguardian.rakibhq.xyz
 
+[![Base Guardian — Wallet intelligence and onchain security for Base](./public/preview.png)](https://baseguardian.rakibhq.xyz)
+
 ---
 
 ## Overview
