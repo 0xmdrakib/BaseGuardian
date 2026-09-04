@@ -6,18 +6,33 @@ import { Providers } from "@/components/wallet/Providers";
 
 const APP_URL = "https://baseguardian.rakibhq.xyz";
 const BASE_APP_ID = "693acb1de6be54f5ed71d631";
+const SOCIAL_IMAGE_URL = `${APP_URL}/base-guardian-link-preview.jpg`;
+const DESCRIPTION = "Wallet intelligence and onchain security for Base.";
+const SOCIAL_IMAGE_ALT = "Base Guardian — Wallet intelligence and onchain security for Base";
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
   title: "Base Guardian",
-  description: "Wallet health and security checks on Base.",
+  description: DESCRIPTION,
+  alternates: {
+    canonical: APP_URL,
+  },
 
   openGraph: {
     title: "Base Guardian",
-    description: "Wallet health and security checks on Base.",
+    description: DESCRIPTION,
     url: APP_URL,
+    siteName: "Base Guardian",
+    locale: "en_US",
     images: [
-      { url: "/preview.png", width: 1200, height: 630, alt: "Base Guardian" },
+      {
+        url: SOCIAL_IMAGE_URL,
+        secureUrl: SOCIAL_IMAGE_URL,
+        width: 1200,
+        height: 630,
+        alt: SOCIAL_IMAGE_ALT,
+        type: "image/jpeg",
+      },
     ],
     type: "website",
   },
@@ -25,8 +40,8 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Base Guardian",
-    description: "Wallet health and security checks on Base.",
-    images: ["/preview.png"],
+    description: DESCRIPTION,
+    images: [{ url: SOCIAL_IMAGE_URL, alt: SOCIAL_IMAGE_ALT }],
   },
 
   icons: {
